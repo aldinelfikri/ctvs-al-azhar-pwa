@@ -7,6 +7,43 @@
 <title>CTVS Offline</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="style.css">
+<style>
+/* Panel konfirmasi QR pada halaman utama */
+.scan-notice {
+  margin: 16px 0;
+  padding: 18px 16px;
+  border: 2px solid #16a34a;
+  border-radius: 14px;
+  background: #f0fdf4;
+  color: #14532d;
+  text-align: center;
+}
+.scan-notice .scan-notice-title {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.scan-notice .scan-notice-token {
+  display: block;
+  margin: 8px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #14532d;
+  font-size: 1.15rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.scan-notice .scan-notice-status {
+  margin: 8px 0 0;
+  font-weight: 800;
+}
+@media (prefers-color-scheme: dark) {
+  .scan-notice { background: #052e16; color: #dcfce7; border-color: #22c55e; }
+  .scan-notice .scan-notice-token { background: #14532d; color: #f0fdf4; }
+}
+</style>
 </head>
 <body>
 <header><h1>CTVS</h1><p>Concert Ticket Validation System</p><span id="deviceBadge" class="badge">Perangkat belum terdaftar</span></header>
@@ -23,6 +60,11 @@
 <section id="home" class="panel hidden">
 <h2 id="deviceTitle">Perangkat</h2>
 <p id="deviceDetail" class="muted"></p>
+<div id="scanNotice" class="scan-notice hidden" role="status" aria-live="polite">
+  <p class="scan-notice-title">QR CODE BERHASIL DIPINDAI</p>
+  <span id="scannedTokenText" class="scan-notice-token"></span>
+  <p class="scan-notice-status">BERHASIL DIPINDAI</p>
+</div>
 <div class="stats">
 <div><b id="nTickets">0</b><span>Database tiket</span></div>
 <div><b id="nActivated">0</b><span>Aktivasi lokal</span></div>
