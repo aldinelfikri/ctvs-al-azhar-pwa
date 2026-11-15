@@ -99,6 +99,14 @@ async function init() {
     show("register");
   }
 
+  if (d && currentScannedToken && localStorage.getItem("ctvs-batch-active") === "1" &&
+      (d.role === "TICKETING" || d.role === "SUPERUSER")) {
+    await addScannedTokenToBatch(currentScannedToken);
+    currentScannedToken = "";
+    history.replaceState({}, "", location.pathname);
+    await renderHome(d);
+  }
+
   if (currentScannedToken) {
     $("tokenInput").value = currentScannedToken;
 
@@ -116,6 +124,9 @@ async function init() {
   $("resetBtn").onclick = resetDevice;
   $("backBtn").onclick = () => show("home");
   $("processBtn").onclick = processTicket;
+  $("batchActivateBtn").onclick = activateBatch;
+  $("batchClearBtn").onclick = clearBatch;
+  $("batchExitBtn").onclick = exitBatchMode;
   $("importCsvBtn").onclick = importCSV;
   $("adminBack").onclick = () => show("home");
 }
@@ -213,11 +224,19 @@ async function renderHome(d) {
     }
   }
 
+  const batchPanel = $("batchPanel");
+  if (batchPanel) {
+    batchPanel.classList.toggle("hidden", localStorage.getItem("ctvs-batch-active") !== "1" ||
+      (d.role !== "TICKETING" && d.role !== "SUPERUSER"));
+    if (localStorage.getItem("ctvs-batch-active") === "1") await renderBatchQueue();
+  }
+
   const actions = $("actions");
   actions.innerHTML = "";
 
   if (d.role === "TICKETING" || d.role === "SUPERUSER") {
     addAction(actions, "ACTIVATION", () => openMode("ACTIVATION"));
+    addAction(actions, "BATCH ACTIVATION (MAKS. 50 TIKET)", () => startBatchMode());
   }
 
   if (d.role === "GATE") {
@@ -269,6 +288,45 @@ async function openMode(m) {
   if (currentScannedToken) {
     $("tokenInput").value = currentScannedToken;
   }
+}
+
+/* BATCH ACTIVATION - MAKSIMAL 50 TIKET */
+const BATCH_LIMIT = 50;
+const BATCH_QUEUE_KEY = "ctvs-batch-queue-v1";
+function readBatchQueue(){try{const q=JSON.parse(localStorage.getItem(BATCH_QUEUE_KEY)||"[]");return Array.isArray(q)?q:[]}catch(e){return []}}
+function writeBatchQueue(q){localStorage.setItem(BATCH_QUEUE_KEY,JSON.stringify(q))}
+async function startBatchMode(){
+ const d=await get("meta","device");
+ if(!d||(d.role!=="TICKETING"&&d.role!=="SUPERUSER")){alert("BATCH ACTIVATION hanya tersedia untuk perangkat Ticketing.");return}
+ localStorage.setItem("ctvs-batch-active","1");writeBatchQueue([]);await renderHome(d);
+ msg("batchMsg","Mode batch aktif. Pindai QR satu per satu menggunakan kamera bawaan smartphone. Setiap tautan QR yang dibuka akan otomatis menambahkan token ke daftar.");
+ $("batchPanel").scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function addScannedTokenToBatch(token){
+ token=String(token||"").trim();if(!token)return;
+ const q=readBatchQueue();
+ if(q.some(x=>x.token===token)){msg("batchMsg","QR ini sudah tercatat. Pemindaian ulang tidak menambah jumlah tiket.");return}
+ if(q.length>=BATCH_LIMIT){msg("batchMsg","Batas 50 tiket tercapai. Proses aktivasi massal sebelum batch berikutnya.");return}
+ q.push({token,scannedAt:new Date().toISOString()});writeBatchQueue(q);await renderBatchQueue();
+ msg("batchMsg","QR "+token+" berhasil ditambahkan. Total: "+q.length+"/"+BATCH_LIMIT+".");
+}
+async function renderBatchQueue(){
+ if(!$("batchPanel"))return;const q=readBatchQueue();$("batchCount").textContent=q.length;const list=$("batchList");list.innerHTML="";
+ q.forEach((x,i)=>{const row=document.createElement("div");row.className="batch-item";const t=document.createElement("span");t.textContent=(i+1)+". "+x.token;const s=document.createElement("small");s.textContent="Menunggu";row.append(t,s);list.appendChild(row)});
+ $("batchActivateBtn").disabled=q.length===0;
+}
+async function clearBatch(){if(!confirm("Kosongkan daftar batch? Status tiket belum berubah."))return;writeBatchQueue([]);await renderBatchQueue();msg("batchMsg","Daftar batch dikosongkan. Tidak ada status tiket yang diubah.")}
+async function exitBatchMode(){if(!confirm("Keluar dari mode batch dan hapus daftar yang belum diproses?"))return;localStorage.removeItem("ctvs-batch-active");writeBatchQueue([]);const d=await get("meta","device");await renderHome(d);msg("homeMsg","Mode Batch Activation ditutup.")}
+async function activateBatch(){
+ const d=await get("meta","device");if(!d||(d.role!=="TICKETING"&&d.role!=="SUPERUSER")){msg("batchMsg","Akses ditolak.");return}
+ const q=readBatchQueue();if(!q.length){msg("batchMsg","Belum ada tiket dalam daftar batch.");return}
+ if(!confirm("Aktivasi "+q.length+" tiket yang memenuhi syarat? Tiket tidak dikenal atau yang statusnya bukan UNACTIVATED akan ditolak."))return;
+ const eligible=[],rejected=[],now=new Date().toISOString();
+ for(const x of q){const t=await get("tickets",x.token);if(!t)rejected.push({token:x.token,reason:"Token tidak ditemukan di database lokal"});else if(t.status!=="UNACTIVATED")rejected.push({token:x.token,reason:"Status saat ini: "+t.status});else eligible.push({ticket:{...t,status:"ACTIVATED",activatedAt:now},event:{eventId:crypto.randomUUID(),token:x.token,eventType:"ACTIVATE",deviceId:d.deviceId,deviceName:d.name,createdAt:now,syncStatus:"PENDING"}})}
+ if(eligible.length){await new Promise((resolve,reject)=>{const tx=db.transaction(["tickets","events"],"readwrite");const ts=tx.objectStore("tickets"),es=tx.objectStore("events");eligible.forEach(x=>{ts.put(x.ticket);es.put(x.event)});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Transaksi batch gagal"));tx.onabort=()=>reject(tx.error||new Error("Transaksi batch dibatalkan"))})}
+ writeBatchQueue([]);await renderBatchQueue();await updateStats();
+ const text="BATCH ACTIVATION SELESAI\nBerhasil: "+eligible.length+"\nDitolak: "+rejected.length+(rejected.length?"\n\nRincian penolakan:\n"+rejected.map(x=>x.token+" — "+x.reason).join("\n"):"");
+ msg("batchMsg",text);
 }
 
 function result(text, type) {
