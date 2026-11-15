@@ -1,5 +1,5 @@
 
-const CACHE = "ctvs-shell-v3";
+const CACHE = "ctvs-shell-v4";
 
 const CORE = [
   "./",
