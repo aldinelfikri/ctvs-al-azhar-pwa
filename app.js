@@ -1,4 +1,3 @@
-
 // CTVS Offline v3 - Super User, Ticketing, dan Gate
 const API_URL = "https://script.google.com/macros/s/AKfycbwCXKRCUjwPbE8DrRc0ZjLzZhNsAjnmXSYxAuyI-ajFZk5irFkL_mvOKZmRZvjsXmC4rA/exec";
 
@@ -431,10 +430,18 @@ async function downloadDB() {
       });
     }
 
-    msg(
-      "homeMsg",
-      "Database pusat berhasil diunduh: " + j.tickets.length + " tiket."
-    );
+    // Notifikasi berbeda berdasarkan hak akses perangkat.
+    if (d.role === "SUPERUSER") {
+      msg(
+        "homeMsg",
+        "Database pusat berhasil diunduh: " + j.tickets.length + " tiket."
+      );
+    } else {
+      msg(
+        "homeMsg",
+        "Database pusat berhasil diunduh seluruhnya"
+      );
+    }
 
     await updateStats();
 
