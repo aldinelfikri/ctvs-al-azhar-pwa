@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>CTVS Offline</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>CTVS</h1><p>Concert Ticket Validation System</p><span id="deviceBadge" class="badge">Perangkat belum terdaftar</span></header>
+<main>
+<section id="register" class="panel">
+<h2>Registrasi perangkat</h2>
+<p class="muted">Lakukan registrasi pertama kali saat internet tersedia. Administrator menentukan enam perangkat yang memiliki hak Gate Entry.</p>
+<label>Nama perangkat/petugas<input id="deviceName" placeholder="Contoh: Gate 1 - Scanner A"></label>
+<label>Kode registrasi<input id="enrollCode" type="password" placeholder="Kode dari administrator"></label>
+<button id="enrollBtn">Daftarkan / perbarui hak perangkat</button>
+<p id="deviceIdText" class="tiny"></p><p id="registerMsg" class="message"></p>
+</section>
+
+<section id="home" class="panel hidden">
+<h2 id="deviceTitle">Perangkat</h2>
+<p id="deviceDetail" class="muted"></p>
+<div class="stats">
+<div><b id="nTickets">0</b><span>Database tiket</span></div>
+<div><b id="nActivated">0</b><span>Aktivasi lokal</span></div>
+<div><b id="nUsed">0</b><span>Gate lokal</span></div>
+<div><b id="nPending">0</b><span>Belum sinkron</span></div>
+</div>
+<div id="actions" class="stack"></div>
+<hr>
+<h3>Persiapan offline dan transfer data</h3>
+<button class="secondary" id="downloadDb">Unduh database pusat (online)</button>
+<button class="secondary" id="exportBundle">Ekspor data perangkat</button>
+<label class="fileLabel">Impor data perangkat lain / paket aktivasi
+<input type="file" id="importBundle" accept=".json,application/json"></label>
+<button class="secondary" id="syncBtn">Sinkronisasi ke pusat (online)</button>
+<p id="homeMsg" class="message"></p>
+<button class="danger" id="resetBtn">Hapus registrasi perangkat ini</button>
+</section>
+
+<section id="scan" class="panel hidden">
+<div class="row"><button id="backBtn" class="secondary small">← Kembali</button><span id="modeBadge" class="badge"></span></div>
+<h2 id="scanHeading">Validasi QR</h2>
+<p class="muted">QR pada gelang sebaiknya berisi tautan aplikasi dengan parameter token. Kamera bawaan smartphone akan membuka halaman ini. Jika token tidak terisi otomatis, masukkan secara manual.</p>
+<label>Token tiket<input id="tokenInput" autocomplete="off" autocapitalize="off" placeholder="Token QR"></label>
+<button id="processBtn">Proses validasi</button>
+<div id="scanResult" class="result hidden" aria-live="polite"></div>
+<p class="tiny muted">Untuk Gate: setelah status berhasil menjadi USED, beri tanda fluoresen pada gelang dan pasangkan gelang sekali-pasang sebelum penonton masuk.</p>
+</section>
+
+<section id="admin" class="panel hidden">
+<h2>Impor database CSV</h2>
+<p class="muted">CSV minimal memiliki header QR_TOKEN,STATUS. Status awal seluruh tiket adalah UNACTIVATED.</p>
+<input type="file" id="csvFile" accept=".csv,text/csv">
+<button id="importCsvBtn">Impor CSV</button><p id="adminMsg" class="message"></p>
+<button class="secondary" id="adminBack">Kembali</button>
+</section>
+</main>
+<footer>CTVS Offline • PWA</footer>
+<script src="app.js"></script>
+</body></html>
