@@ -43,6 +43,9 @@
   .scan-notice { background: #052e16; color: #dcfce7; border-color: #22c55e; }
   .scan-notice .scan-notice-token { background: #14532d; color: #f0fdf4; }
 }
+.batch-panel{margin:18px 0;padding:16px;border:1px solid #64748b;border-radius:14px;background:rgba(148,163,184,.08)}
+.batch-count{display:flex;align-items:baseline;gap:8px;margin:12px 0}.batch-count strong{font-size:2rem}
+.batch-list{max-height:240px;overflow:auto;margin:10px 0}.batch-item{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;margin:5px 0;border-radius:8px;background:rgba(148,163,184,.14);overflow-wrap:anywhere}.batch-item small{opacity:.75;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -72,6 +75,16 @@
 <div><b id="nPending">0</b><span>Belum sinkron</span></div>
 </div>
 <div id="actions" class="stack"></div>
+<section id="batchPanel" class="batch-panel hidden" aria-live="polite">
+<h3>BATCH ACTIVATION</h3>
+<p class="muted">Mode batch aktif. Pindai QR tiket satu per satu menggunakan kamera bawaan. Setiap token otomatis masuk ke daftar. Maksimal 50 tiket per batch.</p>
+<div class="batch-count"><strong id="batchCount">0</strong><span>/ 50 tiket terkumpul</span></div>
+<div id="batchList" class="batch-list"></div>
+<p id="batchMsg" class="message"></p>
+<button id="batchActivateBtn">AKTIVASI MASSAL</button>
+<button id="batchClearBtn" class="secondary">Kosongkan daftar</button>
+<button id="batchExitBtn" class="secondary">Keluar dari mode batch</button>
+</section>
 <hr>
 <h3>Persiapan offline dan transfer data</h3>
 <button class="secondary" id="downloadDb">Unduh database pusat (online)</button>
