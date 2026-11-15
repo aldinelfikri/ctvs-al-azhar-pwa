@@ -1,3 +1,4 @@
+
 // CTVS Offline v3 - Super User, Ticketing, dan Gate
 const API_URL = "https://script.google.com/macros/s/AKfycbwCXKRCUjwPbE8DrRc0ZjLzZhNsAjnmXSYxAuyI-ajFZk5irFkL_mvOKZmRZvjsXmC4rA/exec";
 
@@ -5,6 +6,7 @@ const $ = id => document.getElementById(id);
 
 let db = null;
 let mode = null;
+let currentScannedToken = "";
 
 const DB = "ctvs_2650_v2";
 
@@ -79,6 +81,8 @@ function msg(id, text) {
 }
 
 async function init() {
+  const params = new URLSearchParams(location.search);
+  currentScannedToken = (params.get("t") || params.get("token") || "").trim();
   db = await openDB();
 
   if ("serviceWorker" in navigator) {
@@ -95,11 +99,8 @@ async function init() {
     show("register");
   }
 
-  const params = new URLSearchParams(location.search);
-  const token = params.get("t") || params.get("token");
-
-  if (token) {
-    $("tokenInput").value = token;
+  if (currentScannedToken) {
+    $("tokenInput").value = currentScannedToken;
 
     if (d) {
       show("home");
@@ -200,6 +201,18 @@ async function renderHome(d) {
   $("deviceDetail").textContent =
     "ID: " + d.deviceId + " • Hak akses: " + d.role;
 
+  // Konfirmasi pemindaian QR pada halaman utama.
+  const scanNotice = $("scanNotice");
+  if (scanNotice) {
+    if (currentScannedToken) {
+      $("scannedTokenText").textContent = currentScannedToken;
+      scanNotice.classList.remove("hidden");
+    } else {
+      scanNotice.classList.add("hidden");
+      $("scannedTokenText").textContent = "";
+    }
+  }
+
   const actions = $("actions");
   actions.innerHTML = "";
 
@@ -253,11 +266,8 @@ async function openMode(m) {
 
   show("scan");
 
-  const params = new URLSearchParams(location.search);
-  const token = params.get("t") || params.get("token");
-
-  if (token) {
-    $("tokenInput").value = token;
+  if (currentScannedToken) {
+    $("tokenInput").value = currentScannedToken;
   }
 }
 
@@ -430,7 +440,8 @@ async function downloadDB() {
       });
     }
 
-    // Notifikasi berbeda berdasarkan hak akses perangkat.
+    // Informasi jumlah tiket hanya ditampilkan kepada SUPERUSER.
+    // Petugas TICKETING dan GATE menerima notifikasi umum.
     if (d.role === "SUPERUSER") {
       msg(
         "homeMsg",
