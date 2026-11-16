@@ -1,137 +1,276 @@
+// ======================================================
+// CTVS AL-AZHAR
+// OFFLINE TICKET VALIDATION SYSTEM
+// ======================================================
 
-// CTVS Offline v3 - Super User, Ticketing, dan Gate
-const API_URL = "https://script.google.com/macros/s/AKfycbwCXKRCUjwPbE8DrRc0ZjLzZhNsAjnmXSYxAuyI-ajFZk5irFkL_mvOKZmRZvjsXmC4rA/exec";
+const API_URL =
+  "https://script.google.com/macros/s/AKfycbwCXKRCUjwPbE8DrRc0ZjLzZhNsAjnmXSYxAuyI-ajFZk5irFkL_mvOKZmRZvjsXmC4rA/exec";
+
+const DB = "ctvs_2650_v2";
 
 const $ = id => document.getElementById(id);
 
 let db = null;
 let mode = null;
-let currentScannedToken = "";
+let batchMode = false;
 
-const DB = "ctvs_2650_v2";
+let cameraStream = null;
+let cameraTimer = null;
+let detector = null;
+let cameraRunning = false;
+let scanLocked = false;
+
+let batchResults = {
+  success: 0,
+  failed: 0,
+  tokens: []
+};
+
+// ======================================================
+// DATABASE INDEXEDDB
+// ======================================================
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB, 1);
+    const request = indexedDB.open(DB, 1);
 
-    r.onupgradeneeded = () => {
-      const d = r.result;
-      d.createObjectStore("tickets", { keyPath: "token" });
-      d.createObjectStore("events", { keyPath: "eventId" });
-      d.createObjectStore("meta", { keyPath: "key" });
+    request.onupgradeneeded = () => {
+      const database = request.result;
+
+      if (!database.objectStoreNames.contains("tickets")) {
+        database.createObjectStore("tickets", {
+          keyPath: "token"
+        });
+      }
+
+      if (!database.objectStoreNames.contains("events")) {
+        database.createObjectStore("events", {
+          keyPath: "eventId"
+        });
+      }
+
+      if (!database.objectStoreNames.contains("meta")) {
+        database.createObjectStore("meta", {
+          keyPath: "key"
+        });
+      }
     };
 
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onerror = () => {
+      reject(request.error);
+    };
   });
 }
 
 function get(store, key) {
   return new Promise((resolve, reject) => {
-    const r = db.transaction(store)
-      .objectStore(store).get(key);
+    const request = db
+      .transaction(store)
+      .objectStore(store)
+      .get(key);
 
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 }
 
-function put(store, val) {
+function put(store, value) {
   return new Promise((resolve, reject) => {
-    const r = db.transaction(store, "readwrite")
-      .objectStore(store).put(val);
+    const request = db
+      .transaction(store, "readwrite")
+      .objectStore(store)
+      .put(value);
 
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
   });
 }
 
 function all(store) {
   return new Promise((resolve, reject) => {
-    const r = db.transaction(store)
-      .objectStore(store).getAll();
+    const request = db
+      .transaction(store)
+      .objectStore(store)
+      .getAll();
 
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 }
+
+function deleteItem(store, key) {
+  return new Promise((resolve, reject) => {
+    const request = db
+      .transaction(store, "readwrite")
+      .objectStore(store)
+      .delete(key);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// ======================================================
+// UTILITAS
+// ======================================================
 
 function show(id) {
-  ["register", "home", "scan", "admin"].forEach(x => {
-    $(x).classList.toggle("hidden", x !== id);
+  ["register", "home", "scan", "admin"].forEach(section => {
+    $(section).classList.toggle("hidden", section !== id);
   });
-}
-
-function deviceId() {
-  let x = localStorage.getItem("ctvs-device-id");
-
-  if (!x) {
-    x = crypto.randomUUID
-      ? crypto.randomUUID()
-      : Date.now() + "-" + Math.random().toString(36).slice(2);
-
-    localStorage.setItem("ctvs-device-id", x);
-  }
-
-  return x;
 }
 
 function msg(id, text) {
   $(id).textContent = text;
 }
 
+function deviceId() {
+  let id = localStorage.getItem("ctvs-device-id");
+
+  if (!id) {
+    id = crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now() + "-" + Math.random().toString(36).slice(2);
+
+    localStorage.setItem("ctvs-device-id", id);
+  }
+
+  return id;
+}
+
+function setLoading(button, active, label) {
+  if (!button) return;
+
+  if (active) {
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent;
+    }
+
+    button.disabled = true;
+    button.classList.add("loading");
+
+    if (label) {
+      button.textContent = label;
+    }
+  } else {
+    button.disabled = false;
+    button.classList.remove("loading");
+
+    if (button.dataset.originalText) {
+      button.textContent = button.dataset.originalText;
+      delete button.dataset.originalText;
+    }
+  }
+}
+
+async function withLoading(button, label, task) {
+  setLoading(button, true, label);
+
+  try {
+    return await task();
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+function newId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : Date.now() + "-" + Math.random().toString(36).slice(2);
+}
+
+// ======================================================
+// INISIALISASI
+// ======================================================
+
 async function init() {
-  const params = new URLSearchParams(location.search);
-  currentScannedToken = (params.get("t") || params.get("token") || "").trim();
   db = await openDB();
 
   if ("serviceWorker" in navigator) {
-    await navigator.serviceWorker.register("./sw.js");
+    try {
+      await navigator.serviceWorker.register("./sw.js");
+    } catch (error) {
+      console.warn("Service Worker gagal:", error);
+    }
   }
 
-  $("deviceIdText").textContent = "ID perangkat: " + deviceId();
+  $("deviceIdText").textContent =
+    "ID perangkat: " + deviceId();
 
-  const d = await get("meta", "device");
+  const device = await get("meta", "device");
 
-  if (d) {
-    await renderHome(d);
+  if (device) {
+    await renderHome(device);
   } else {
     show("register");
   }
 
-  if (d && currentScannedToken && localStorage.getItem("ctvs-batch-active") === "1" &&
-      (d.role === "TICKETING" || d.role === "SUPERUSER")) {
-    await addScannedTokenToBatch(currentScannedToken);
-    currentScannedToken = "";
-    history.replaceState({}, "", location.pathname);
-    await renderHome(d);
-  }
+  const params = new URLSearchParams(location.search);
+  const token = params.get("t") || params.get("token");
 
-  if (currentScannedToken) {
-    $("tokenInput").value = currentScannedToken;
+  if (token) {
+    $("tokenInput").value = token;
 
-    if (d) {
+    if (device) {
       show("home");
-      await renderHome(d);
     }
   }
 
-  $("enrollBtn").onclick = enroll;
-  $("downloadDb").onclick = downloadDB;
-  $("exportBundle").onclick = exportBundle;
-  $("importBundle").onchange = importBundle;
-  $("syncBtn").onclick = syncEvents;
-  $("resetBtn").onclick = resetDevice;
-  $("backBtn").onclick = () => show("home");
-  $("processBtn").onclick = processTicket;
-  $("batchActivateBtn").onclick = activateBatch;
-  $("batchClearBtn").onclick = clearBatch;
-  $("batchExitBtn").onclick = exitBatchMode;
-  $("importCsvBtn").onclick = importCSV;
-  $("adminBack").onclick = () => show("home");
+  bindEvents();
 }
 
-/* REGISTRASI PERANGKAT */
+function bindEvents() {
+  $("enrollBtn").onclick = () =>
+    withLoading($("enrollBtn"), "Mendaftarkan...", enroll);
+
+  $("downloadDb").onclick = () =>
+    withLoading($("downloadDb"), "Mengunduh...", downloadDB);
+
+  $("exportBundle").onclick = () =>
+    withLoading($("exportBundle"), "Mengekspor...", exportBundle);
+
+  $("importBundle").onchange = importBundle;
+
+  $("syncBtn").onclick = () =>
+    withLoading($("syncBtn"), "Sinkronisasi...", syncEvents);
+
+  $("resetBtn").onclick = resetDevice;
+
+  $("backBtn").onclick = async () => {
+    stopCamera();
+    const device = await get("meta", "device");
+    if (device) await renderHome(device);
+  };
+
+  $("processBtn").onclick = () =>
+    withLoading($("processBtn"), "Memproses...", processTicket);
+
+  $("importCsvBtn").onclick = () =>
+    withLoading($("importCsvBtn"), "Mengimpor...", importCSV);
+
+  $("adminBack").onclick = async () => {
+    const device = await get("meta", "device");
+    if (device) await renderHome(device);
+  };
+
+  $("startCameraBtn").onclick = () =>
+    withLoading($("startCameraBtn"), "Membuka kamera...", startCamera);
+
+  $("stopCameraBtn").onclick = stopCamera;
+
+  $("nextScanBtn").onclick = nextScan;
+
+  $("finishBatchBtn").onclick = finishBatch;
+}
+
+// ======================================================
+// REGISTRASI PERANGKAT
+// ======================================================
+
 async function enroll() {
   if (!navigator.onLine) {
     msg("registerMsg", "Registrasi memerlukan koneksi internet.");
@@ -142,12 +281,15 @@ async function enroll() {
   const code = $("enrollCode").value.trim();
 
   if (!name || !code) {
-    msg("registerMsg", "Nama perangkat dan kode registrasi wajib diisi.");
+    msg(
+      "registerMsg",
+      "Nama perangkat dan kode registrasi wajib diisi."
+    );
     return;
   }
 
   try {
-    const r = await fetch(API_URL, {
+    const response = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8"
@@ -160,181 +302,217 @@ async function enroll() {
       })
     });
 
-    const j = await r.json();
+    const data = await response.json();
 
-    if (!j.ok) {
-      throw Error(j.message || "Registrasi ditolak");
+    if (!data.ok) {
+      throw new Error(data.message || "Registrasi ditolak.");
     }
 
-    const d = {
+    const device = {
       key: "device",
       deviceId: deviceId(),
-      name: name,
-      role: j.role,
-      deviceToken: j.deviceToken,
+      name,
+      role: data.role,
+      deviceToken: data.deviceToken,
       registeredAt: new Date().toISOString()
     };
 
-    await put("meta", d);
+    await put("meta", device);
+
     $("enrollCode").value = "";
 
-    await renderHome(d);
+    await renderHome(device);
 
-    msg("homeMsg", "Registrasi berhasil. Hak akses: " + d.role);
+    msg(
+      "homeMsg",
+      "Registrasi berhasil. Hak akses: " + device.role
+    );
 
-  } catch (e) {
-    msg("registerMsg", "Registrasi gagal: " + e.message);
+  } catch (error) {
+    msg("registerMsg", "Registrasi gagal: " + error.message);
   }
 }
 
-/* TAMPILAN BERDASARKAN PERAN */
-async function renderHome(d) {
+// ======================================================
+// BERANDA BERDASARKAN PERAN
+// ======================================================
+
+async function renderHome(device) {
   show("home");
 
   const stats = document.querySelector(".stats");
 
-  // Hanya SUPERUSER yang dapat melihat statistik.
   if (stats) {
-    stats.classList.toggle("hidden", d.role !== "SUPERUSER");
+    stats.classList.toggle(
+      "hidden",
+      device.role !== "SUPERUSER"
+    );
   }
 
-  if (d.role === "SUPERUSER") {
-    $("deviceTitle").textContent = "SUPERUSER - " + d.name;
-    $("deviceBadge").textContent = "SUPERUSER / " + d.name;
-  } else if (d.role === "GATE") {
-    $("deviceTitle").textContent = "Gate Entry - " + d.name;
-    $("deviceBadge").textContent = "GATE / " + d.name;
+  if (device.role === "SUPERUSER") {
+    $("deviceTitle").textContent =
+      "SUPERUSER - " + device.name;
+
+    $("deviceBadge").textContent =
+      "SUPERUSER / " + device.name;
+
+  } else if (device.role === "GATE") {
+    $("deviceTitle").textContent =
+      "Gate Entry - " + device.name;
+
+    $("deviceBadge").textContent =
+      "GATE / " + device.name;
+
   } else {
-    $("deviceTitle").textContent = "Ticketing - " + d.name;
-    $("deviceBadge").textContent = "TICKETING / " + d.name;
+    $("deviceTitle").textContent =
+      "Ticketing - " + device.name;
+
+    $("deviceBadge").textContent =
+      "TICKETING / " + device.name;
   }
 
   $("deviceDetail").textContent =
-    "ID: " + d.deviceId + " • Hak akses: " + d.role;
-
-  // Konfirmasi pemindaian QR pada halaman utama.
-  const scanNotice = $("scanNotice");
-  if (scanNotice) {
-    if (currentScannedToken) {
-      $("scannedTokenText").textContent = currentScannedToken;
-      scanNotice.classList.remove("hidden");
-    } else {
-      scanNotice.classList.add("hidden");
-      $("scannedTokenText").textContent = "";
-    }
-  }
-
-  const batchPanel = $("batchPanel");
-  if (batchPanel) {
-    batchPanel.classList.toggle("hidden", localStorage.getItem("ctvs-batch-active") !== "1" ||
-      (d.role !== "TICKETING" && d.role !== "SUPERUSER"));
-    if (localStorage.getItem("ctvs-batch-active") === "1") await renderBatchQueue();
-  }
+    "ID: " + device.deviceId +
+    " • Hak akses: " + device.role;
 
   const actions = $("actions");
   actions.innerHTML = "";
 
-  if (d.role === "TICKETING" || d.role === "SUPERUSER") {
-    addAction(actions, "ACTIVATION", () => openMode("ACTIVATION"));
-    addAction(actions, "BATCH ACTIVATION (MAKS. 50 TIKET)", () => startBatchMode());
+  if (
+    device.role === "TICKETING" ||
+    device.role === "SUPERUSER"
+  ) {
+    addAction(
+      actions,
+      "ACTIVATION",
+      () => openMode("ACTIVATION", false)
+    );
+
+    addAction(
+      actions,
+      "BATCH ACTIVATION",
+      () => openMode("ACTIVATION", true)
+    );
   }
 
-  if (d.role === "GATE") {
-    addAction(actions, "GATE ENTRY", () => openMode("GATE"));
+  if (device.role === "GATE") {
+    addAction(
+      actions,
+      "GATE ENTRY",
+      () => openMode("GATE", false)
+    );
   }
 
-  if (d.role === "SUPERUSER") {
-    addAction(actions, "SUPERUSER: Impor CSV", () => show("admin"));
+  if (device.role === "SUPERUSER") {
+    addAction(
+      actions,
+      "SUPERUSER: IMPOR CSV",
+      () => show("admin")
+    );
   }
 
   await updateStats();
 }
 
-function addAction(parent, label, fn) {
-  const b = document.createElement("button");
-  b.textContent = label;
-  b.onclick = fn;
-  parent.appendChild(b);
+function addAction(parent, label, callback) {
+  const button = document.createElement("button");
+
+  button.textContent = label;
+
+  button.onclick = async () => {
+    await withLoading(button, "Membuka...", callback);
+  };
+
+  parent.appendChild(button);
 }
 
-/* MEMBUKA MODE VALIDASI */
-async function openMode(m) {
-  const d = await get("meta", "device");
+// ======================================================
+// MEMBUKA MODE
+// ======================================================
+
+async function openMode(selectedMode, isBatch) {
+  const device = await get("meta", "device");
+
+  if (!device) {
+    show("register");
+    return;
+  }
 
   if (
-    m === "ACTIVATION" &&
-    d.role !== "TICKETING" &&
-    d.role !== "SUPERUSER"
+    selectedMode === "ACTIVATION" &&
+    !["TICKETING", "SUPERUSER"].includes(device.role)
   ) {
     alert("Perangkat ini tidak memiliki hak Ticketing.");
     return;
   }
 
-  if (m === "GATE" && d.role !== "GATE") {
+  if (
+    selectedMode === "GATE" &&
+    device.role !== "GATE"
+  ) {
     alert("Perangkat ini tidak memiliki hak Gate.");
     return;
   }
 
-  mode = m;
+  stopCamera();
 
-  $("modeBadge").textContent = m;
+  mode = selectedMode;
+  batchMode = Boolean(isBatch);
+
+  batchResults = {
+    success: 0,
+    failed: 0,
+    tokens: []
+  };
+
+  $("modeBadge").textContent = batchMode
+    ? "BATCH ACTIVATION"
+    : selectedMode;
+
   $("scanHeading").textContent =
-    m === "GATE" ? "Gate Entry" : "Aktivasi Tiket";
+    selectedMode === "GATE"
+      ? "Gate Entry"
+      : batchMode
+        ? "Batch Activation"
+        : "Aktivasi Tiket";
+
+  $("scanDescription").textContent =
+    batchMode
+      ? "Pindai tiket satu per satu. Setelah setiap tiket diproses, tekan tombol PINDAI TIKET BERIKUTNYA."
+      : "Pindai satu tiket. Kamera akan berhenti setelah satu QR terbaca.";
 
   $("scanResult").className = "result hidden";
 
+  $("batchPanel").classList.toggle("hidden", !batchMode);
+  $("nextScanBtn").classList.add("hidden");
+
+  $("tokenInput").value = "";
+
+  const params = new URLSearchParams(location.search);
+  const token = params.get("t") || params.get("token");
+
+  if (token) {
+    $("tokenInput").value = token;
+  }
+
   show("scan");
 
-  if (currentScannedToken) {
-    $("tokenInput").value = currentScannedToken;
-  }
+  updateBatchSummary();
 }
 
-/* BATCH ACTIVATION - MAKSIMAL 50 TIKET */
-const BATCH_LIMIT = 50;
-const BATCH_QUEUE_KEY = "ctvs-batch-queue-v1";
-function readBatchQueue(){try{const q=JSON.parse(localStorage.getItem(BATCH_QUEUE_KEY)||"[]");return Array.isArray(q)?q:[]}catch(e){return []}}
-function writeBatchQueue(q){localStorage.setItem(BATCH_QUEUE_KEY,JSON.stringify(q))}
-async function startBatchMode(){
- const d=await get("meta","device");
- if(!d||(d.role!=="TICKETING"&&d.role!=="SUPERUSER")){alert("BATCH ACTIVATION hanya tersedia untuk perangkat Ticketing.");return}
- localStorage.setItem("ctvs-batch-active","1");writeBatchQueue([]);await renderHome(d);
- msg("batchMsg","Mode batch aktif. Pindai QR satu per satu menggunakan kamera bawaan smartphone. Setiap tautan QR yang dibuka akan otomatis menambahkan token ke daftar.");
- $("batchPanel").scrollIntoView({behavior:"smooth",block:"start"});
-}
-async function addScannedTokenToBatch(token){
- token=String(token||"").trim();if(!token)return;
- const q=readBatchQueue();
- if(q.some(x=>x.token===token)){msg("batchMsg","QR ini sudah tercatat. Pemindaian ulang tidak menambah jumlah tiket.");return}
- if(q.length>=BATCH_LIMIT){msg("batchMsg","Batas 50 tiket tercapai. Proses aktivasi massal sebelum batch berikutnya.");return}
- q.push({token,scannedAt:new Date().toISOString()});writeBatchQueue(q);await renderBatchQueue();
- msg("batchMsg","QR "+token+" berhasil ditambahkan. Total: "+q.length+"/"+BATCH_LIMIT+".");
-}
-async function renderBatchQueue(){
- if(!$("batchPanel"))return;const q=readBatchQueue();$("batchCount").textContent=q.length;const list=$("batchList");list.innerHTML="";
- q.forEach((x,i)=>{const row=document.createElement("div");row.className="batch-item";const t=document.createElement("span");t.textContent=(i+1)+". "+x.token;const s=document.createElement("small");s.textContent="Menunggu";row.append(t,s);list.appendChild(row)});
- $("batchActivateBtn").disabled=q.length===0;
-}
-async function clearBatch(){if(!confirm("Kosongkan daftar batch? Status tiket belum berubah."))return;writeBatchQueue([]);await renderBatchQueue();msg("batchMsg","Daftar batch dikosongkan. Tidak ada status tiket yang diubah.")}
-async function exitBatchMode(){if(!confirm("Keluar dari mode batch dan hapus daftar yang belum diproses?"))return;localStorage.removeItem("ctvs-batch-active");writeBatchQueue([]);const d=await get("meta","device");await renderHome(d);msg("homeMsg","Mode Batch Activation ditutup.")}
-async function activateBatch(){
- const d=await get("meta","device");if(!d||(d.role!=="TICKETING"&&d.role!=="SUPERUSER")){msg("batchMsg","Akses ditolak.");return}
- const q=readBatchQueue();if(!q.length){msg("batchMsg","Belum ada tiket dalam daftar batch.");return}
- if(!confirm("Aktivasi "+q.length+" tiket yang memenuhi syarat? Tiket tidak dikenal atau yang statusnya bukan UNACTIVATED akan ditolak."))return;
- const eligible=[],rejected=[],now=new Date().toISOString();
- for(const x of q){const t=await get("tickets",x.token);if(!t)rejected.push({token:x.token,reason:"Token tidak ditemukan di database lokal"});else if(t.status!=="UNACTIVATED")rejected.push({token:x.token,reason:"Status saat ini: "+t.status});else eligible.push({ticket:{...t,status:"ACTIVATED",activatedAt:now},event:{eventId:crypto.randomUUID(),token:x.token,eventType:"ACTIVATE",deviceId:d.deviceId,deviceName:d.name,createdAt:now,syncStatus:"PENDING"}})}
- if(eligible.length){await new Promise((resolve,reject)=>{const tx=db.transaction(["tickets","events"],"readwrite");const ts=tx.objectStore("tickets"),es=tx.objectStore("events");eligible.forEach(x=>{ts.put(x.ticket);es.put(x.event)});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error("Transaksi batch gagal"));tx.onabort=()=>reject(tx.error||new Error("Transaksi batch dibatalkan"))})}
- writeBatchQueue([]);await renderBatchQueue();await updateStats();
- const text="BATCH ACTIVATION SELESAI\nBerhasil: "+eligible.length+"\nDitolak: "+rejected.length+(rejected.length?"\n\nRincian penolakan:\n"+rejected.map(x=>x.token+" — "+x.reason).join("\n"):"");
- msg("batchMsg",text);
-}
+// ======================================================
+// HASIL VALIDASI
+// ======================================================
 
 function result(text, type) {
   $("scanResult").textContent = text;
   $("scanResult").className = "result " + type;
 }
 
-/* PROSES TIKET */
+// ======================================================
+// VALIDASI TIKET
+// ======================================================
+
 async function processTicket() {
   const token = $("tokenInput").value.trim();
 
@@ -343,47 +521,54 @@ async function processTicket() {
     return;
   }
 
-  const t = await get("tickets", token);
-  const d = await get("meta", "device");
+  const device = await get("meta", "device");
+  const ticket = await get("tickets", token);
 
-  if (!d || !t) {
+  if (!device || !ticket) {
     result(
       "TICKET INVALID\n(ENTRY NOT PERMITTED)\nToken tidak ditemukan pada database lokal.",
       "bad"
     );
+
+    recordBatchFailure(token);
+    pauseAfterScan();
     return;
   }
 
   if (
     mode === "ACTIVATION" &&
-    d.role !== "TICKETING" &&
-    d.role !== "SUPERUSER"
+    !["TICKETING", "SUPERUSER"].includes(device.role)
   ) {
     result("AKSES DITOLAK", "bad");
     return;
   }
 
-  if (mode === "GATE" && d.role !== "GATE") {
+  if (
+    mode === "GATE" &&
+    device.role !== "GATE"
+  ) {
     result("AKSES DITOLAK", "bad");
     return;
   }
 
-  let eventType = null;
   const now = new Date().toISOString();
+  let eventType = null;
+  let successful = false;
 
   if (mode === "ACTIVATION") {
-    if (t.status === "UNACTIVATED") {
-      t.status = "ACTIVATED";
-      t.activatedAt = now;
+    if (ticket.status === "UNACTIVATED") {
+      ticket.status = "ACTIVATED";
+      ticket.activatedAt = now;
 
       eventType = "ACTIVATE";
+      successful = true;
 
       result(
         "TICKET HAS BEEN VALIDATED\n(GATE ENTRY PERMITTED)",
         "ok"
       );
 
-    } else if (t.status === "ACTIVATED") {
+    } else if (ticket.status === "ACTIVATED") {
       result("TICKET ALREADY ACTIVATED", "warn");
 
     } else {
@@ -394,18 +579,19 @@ async function processTicket() {
     }
 
   } else if (mode === "GATE") {
-    if (t.status === "ACTIVATED") {
-      t.status = "USED";
-      t.usedAt = now;
+    if (ticket.status === "ACTIVATED") {
+      ticket.status = "USED";
+      ticket.usedAt = now;
 
       eventType = "GATE_USE";
+      successful = true;
 
       result(
         "TICKET VALID\n(ENTRY PERMITTED)\n\nBERI TANDA FLUORESEN DAN PASANG GELANG SEKARANG.",
         "ok"
       );
 
-    } else if (t.status === "UNACTIVATED") {
+    } else if (ticket.status === "UNACTIVATED") {
       result(
         "TICKET INVALID\n(ENTRY NOT PERMITTED)",
         "bad"
@@ -417,122 +603,384 @@ async function processTicket() {
         "bad"
       );
     }
-
-  } else {
-    result("Pilih fungsi validasi terlebih dahulu.", "warn");
-    return;
   }
 
   if (eventType) {
-    await put("tickets", t);
+    await put("tickets", ticket);
 
     await put("events", {
-      eventId: crypto.randomUUID(),
-      token: token,
-      eventType: eventType,
-      deviceId: d.deviceId,
-      deviceName: d.name,
+      eventId: newId(),
+      token,
+      eventType,
+      deviceId: device.deviceId,
+      deviceName: device.name,
       createdAt: now,
       syncStatus: "PENDING"
     });
   }
 
+  if (batchMode) {
+    if (successful) {
+      batchResults.success++;
+      batchResults.tokens.push(token);
+    } else {
+      recordBatchFailure(token);
+    }
+
+    updateBatchSummary();
+  }
+
   await updateStats();
+
+  pauseAfterScan();
 }
 
-/* STATISTIK LOKAL: KHUSUS SUPERUSER */
+function recordBatchFailure(token) {
+  if (!batchMode) return;
+
+  batchResults.failed++;
+  batchResults.tokens.push(token);
+}
+
+function updateBatchSummary() {
+  $("batchSummary").textContent =
+    "Berhasil: " + batchResults.success +
+    "\nGagal / tidak memenuhi syarat: " + batchResults.failed +
+    "\nTotal diproses: " +
+    (batchResults.success + batchResults.failed);
+}
+
+function finishBatch() {
+  stopCamera();
+
+  $("batchSummary").textContent +=
+    "\n\nAktivasi batch telah diakhiri.";
+
+  $("nextScanBtn").classList.add("hidden");
+}
+
+// ======================================================
+// PAUSE SETELAH SATU PEMINDAIAN
+// ======================================================
+
+function pauseAfterScan() {
+  stopDetectionOnly();
+
+  $("nextScanBtn").classList.remove("hidden");
+
+  $("cameraStatus").textContent =
+    "QR berhasil diproses. Kamera dijeda.";
+}
+
+async function nextScan() {
+  $("tokenInput").value = "";
+  $("scanResult").className = "result hidden";
+  $("nextScanBtn").classList.add("hidden");
+
+  if (cameraStream) {
+    startDetectionOnly();
+  } else {
+    $("cameraStatus").textContent =
+      "Tekan Buka Kamera untuk pemindaian berikutnya.";
+  }
+}
+
+// ======================================================
+// KAMERA INTERNAL
+// ======================================================
+
+async function startCamera() {
+  if (!navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia) {
+    result(
+      "Browser tidak mendukung akses kamera. Gunakan input token manual.",
+      "warn"
+    );
+    return;
+  }
+
+  if (!("BarcodeDetector" in window)) {
+    result(
+      "Browser ini belum mendukung pemindai QR internal. Gunakan browser yang mendukung BarcodeDetector atau masukkan token secara manual.",
+      "warn"
+    );
+    return;
+  }
+
+  try {
+    detector = new BarcodeDetector({
+      formats: ["qr_code"]
+    });
+
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: {
+          ideal: "environment"
+        }
+      }
+    });
+
+    const video = $("cameraVideo");
+
+    video.srcObject = cameraStream;
+
+    await video.play();
+
+    $("cameraPanel").classList.remove("hidden");
+    $("startCameraBtn").classList.add("hidden");
+    $("stopCameraBtn").classList.remove("hidden");
+
+    cameraRunning = true;
+    scanLocked = false;
+
+    $("cameraStatus").textContent =
+      "Kamera aktif. Arahkan ke QR tiket.";
+
+    startDetectionOnly();
+
+  } catch (error) {
+    stopCamera();
+
+    result(
+      "Kamera tidak dapat dibuka: " + error.message,
+      "bad"
+    );
+  }
+}
+
+function startDetectionOnly() {
+  if (!cameraStream || !detector) return;
+
+  cameraRunning = true;
+  scanLocked = false;
+
+  $("cameraStatus").textContent =
+    "Kamera aktif. Arahkan ke QR tiket.";
+
+  if (cameraTimer) {
+    clearInterval(cameraTimer);
+  }
+
+  cameraTimer = setInterval(detectQR, 250);
+}
+
+function stopDetectionOnly() {
+  cameraRunning = false;
+
+  if (cameraTimer) {
+    clearInterval(cameraTimer);
+    cameraTimer = null;
+  }
+}
+
+async function detectQR() {
+  if (!cameraRunning || scanLocked) return;
+
+  const video = $("cameraVideo");
+
+  if (
+    !video ||
+    video.readyState < 2 ||
+    !detector
+  ) {
+    return;
+  }
+
+  try {
+    const codes = await detector.detect(video);
+
+    if (!codes || !codes.length) return;
+
+    const value = String(codes[0].rawValue || "").trim();
+
+    if (!value) return;
+
+    const token = extractToken(value);
+
+    if (!token) {
+      $("cameraStatus").textContent =
+        "QR terbaca, tetapi token tidak dikenali.";
+      return;
+    }
+
+    scanLocked = true;
+    stopDetectionOnly();
+
+    $("tokenInput").value = token;
+
+    $("cameraStatus").textContent =
+      "QR terbaca: " + token;
+
+    await processTicket();
+
+  } catch (error) {
+    console.warn("Pembacaan QR gagal:", error);
+  }
+}
+
+function extractToken(value) {
+  try {
+    if (value.startsWith("http://") ||
+        value.startsWith("https://")) {
+      const url = new URL(value);
+
+      return (
+        url.searchParams.get("t") ||
+        url.searchParams.get("token") ||
+        ""
+      ).trim();
+    }
+  } catch (_) {
+    // Lanjutkan pemeriksaan token biasa.
+  }
+
+  return value.trim();
+}
+
+function stopCamera() {
+  stopDetectionOnly();
+
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+
+  const video = $("cameraVideo");
+
+  if (video) {
+    video.pause();
+    video.srcObject = null;
+  }
+
+  $("cameraPanel").classList.add("hidden");
+  $("startCameraBtn").classList.remove("hidden");
+  $("stopCameraBtn").classList.add("hidden");
+
+  $("cameraStatus").textContent =
+    "Kamera belum aktif";
+}
+
+// ======================================================
+// STATISTIK SUPERUSER
+// ======================================================
+
 async function updateStats() {
-  const d = await get("meta", "device");
+  const device = await get("meta", "device");
   const stats = document.querySelector(".stats");
 
-  if (!d || d.role !== "SUPERUSER") {
+  if (!device || device.role !== "SUPERUSER") {
     if (stats) stats.classList.add("hidden");
     return;
   }
 
   if (stats) stats.classList.remove("hidden");
 
-  const ts = await all("tickets");
-  const es = await all("events");
+  const tickets = await all("tickets");
+  const events = await all("events");
 
-  $("nTickets").textContent = ts.length;
+  $("nTickets").textContent = tickets.length;
 
-  $("nActivated").textContent = ts.filter(
-    x => x.status === "ACTIVATED" || x.status === "USED"
-  ).length;
+  $("nActivated").textContent =
+    tickets.filter(ticket =>
+      ticket.status === "ACTIVATED" ||
+      ticket.status === "USED"
+    ).length;
 
-  $("nUsed").textContent = ts.filter(
-    x => x.status === "USED"
-  ).length;
+  $("nUsed").textContent =
+    tickets.filter(ticket =>
+      ticket.status === "USED"
+    ).length;
 
-  $("nPending").textContent = es.filter(
-    x => x.syncStatus !== "SYNCED"
-  ).length;
+  $("nPending").textContent =
+    events.filter(event =>
+      event.syncStatus !== "SYNCED"
+    ).length;
 }
 
-/* UNDUH DATABASE PUSAT */
+// ======================================================
+// UNDUH DATABASE PUSAT
+// ======================================================
+
 async function downloadDB() {
   if (!navigator.onLine) {
-    msg("homeMsg", "Tidak ada internet. Database lokal tetap tersedia.");
+    msg(
+      "homeMsg",
+      "Tidak ada koneksi internet. Database lokal tetap tersedia."
+    );
     return;
   }
 
   try {
-    const d = await get("meta", "device");
+    const device = await get("meta", "device");
 
-    const url = API_URL +
-      "?action=download&deviceId=" +
-      encodeURIComponent(d.deviceId) +
-      "&deviceToken=" +
-      encodeURIComponent(d.deviceToken);
+    if (!device) {
+      throw new Error("Perangkat belum terdaftar.");
+    }
 
-    const r = await fetch(url);
-    const j = await r.json();
+    const url =
+      API_URL +
+      "?action=download" +
+      "&deviceId=" + encodeURIComponent(device.deviceId) +
+      "&deviceToken=" + encodeURIComponent(device.deviceToken);
 
-    if (!j.ok) throw Error(j.message);
+    const response = await fetch(url);
+    const data = await response.json();
 
-    for (const t of j.tickets) {
+    if (!data.ok) {
+      throw new Error(data.message || "Unduhan ditolak.");
+    }
+
+    for (const ticket of data.tickets || []) {
       await put("tickets", {
-        token: t.token,
-        status: t.status
+        token: ticket.token,
+        status: ticket.status
       });
     }
 
-    // Informasi jumlah tiket hanya ditampilkan kepada SUPERUSER.
-    // Petugas TICKETING dan GATE menerima notifikasi umum.
-    if (d.role === "SUPERUSER") {
-      msg(
-        "homeMsg",
-        "Database pusat berhasil diunduh: " + j.tickets.length + " tiket."
-      );
-    } else {
-      msg(
-        "homeMsg",
-        "Database pusat berhasil diunduh seluruhnya"
-      );
-    }
+    const message =
+      device.role === "SUPERUSER"
+        ? "Database pusat berhasil diunduh seluruhnya. Total: " +
+          (data.tickets || []).length + " tiket."
+        : "Database pusat berhasil diunduh seluruhnya";
+
+    msg("homeMsg", message);
 
     await updateStats();
 
-  } catch (e) {
-    msg("homeMsg", "Gagal mengunduh database: " + e.message);
+  } catch (error) {
+    msg(
+      "homeMsg",
+      "Gagal mengunduh database: " + error.message
+    );
   }
 }
 
-/* EKSPOR DATA PERANGKAT */
+// ======================================================
+// EKSPOR DATA PERANGKAT
+// ======================================================
+
 async function exportBundle() {
-  const d = await get("meta", "device");
+  const device = await get("meta", "device");
+
+  if (!device) {
+    msg("homeMsg", "Perangkat belum terdaftar.");
+    return;
+  }
+
   const tickets = await all("tickets");
   const events = await all("events");
 
   const bundle = {
     format: "CTVS_OFFLINE_BUNDLE_V2",
     exportedAt: new Date().toISOString(),
+
     device: {
-      deviceId: d.deviceId,
-      name: d.name,
-      role: d.role
+      deviceId: device.deviceId,
+      name: device.name,
+      role: device.role
     },
+
     tickets,
     events
   };
@@ -543,30 +991,37 @@ async function exportBundle() {
   );
 
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const anchor = document.createElement("a");
 
-  a.href = url;
-  a.download = "CTVS_" + d.deviceId + "_" + Date.now() + ".json";
-  a.click();
+  anchor.href = url;
 
-  URL.revokeObjectURL(url);
+  anchor.download =
+    "CTVS_" + device.deviceId + "_" + Date.now() + ".json";
+
+  anchor.click();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   msg(
     "homeMsg",
-    "Paket data perangkat diekspor. Transfer file ini ke perangkat tujuan sebelum Gate dibuka."
+    "Paket data perangkat berhasil diekspor."
   );
 }
 
-/* IMPOR DATA PERANGKAT LAIN */
-async function importBundle(ev) {
-  const file = ev.target.files[0];
+// ======================================================
+// IMPOR DATA PERANGKAT
+// ======================================================
+
+async function importBundle(event) {
+  const file = event.target.files[0];
+
   if (!file) return;
 
   try {
-    const b = JSON.parse(await file.text());
+    const bundle = JSON.parse(await file.text());
 
-    if (b.format !== "CTVS_OFFLINE_BUNDLE_V2") {
-      throw Error("Format paket tidak dikenali");
+    if (bundle.format !== "CTVS_OFFLINE_BUNDLE_V2") {
+      throw new Error("Format paket tidak dikenali.");
     }
 
     const rank = {
@@ -575,7 +1030,12 @@ async function importBundle(ev) {
       USED: 2
     };
 
-    for (const incoming of b.tickets || []) {
+    for (const incoming of bundle.tickets || []) {
+      if (!incoming.token ||
+          !(incoming.status in rank)) {
+        continue;
+      }
+
       const old = await get("tickets", incoming.token);
 
       if (
@@ -586,8 +1046,12 @@ async function importBundle(ev) {
       }
     }
 
-    for (const incoming of b.events || []) {
-      if (!(await get("events", incoming.eventId))) {
+    for (const incoming of bundle.events || []) {
+      if (!incoming.eventId) continue;
+
+      const old = await get("events", incoming.eventId);
+
+      if (!old) {
         await put("events", incoming);
       }
     }
@@ -595,183 +1059,298 @@ async function importBundle(ev) {
     msg(
       "homeMsg",
       "Impor berhasil dari " +
-      (b.device?.name || "perangkat lain") +
-      ". Tiket dan log digabungkan. Periksa jumlah database sebelum Gate dibuka."
+      (bundle.device?.name || "perangkat lain") +
+      ". Data tiket dan log telah digabungkan."
     );
 
     await updateStats();
 
-  } catch (e) {
-    msg("homeMsg", "Impor gagal: " + e.message);
-  }
+  } catch (error) {
+    msg("homeMsg", "Impor gagal: " + error.message);
 
-  ev.target.value = "";
+  } finally {
+    event.target.value = "";
+  }
 }
 
-/* SINKRONISASI */
+// ======================================================
+// SINKRONISASI
+// ======================================================
+
 async function syncEvents() {
   if (!navigator.onLine) {
-    msg("homeMsg", "Offline. Transaksi tetap tersimpan di perangkat.");
-    return;
-  }
-
-  const d = await get("meta", "device");
-
-  const events = (await all("events")).filter(
-    e => e.syncStatus !== "SYNCED"
-  );
-
-  if (!events.length) {
-    msg("homeMsg", "Tidak ada transaksi yang menunggu sinkronisasi.");
+    msg(
+      "homeMsg",
+      "Perangkat sedang offline. Transaksi tetap tersimpan secara lokal."
+    );
     return;
   }
 
   try {
-    const r = await fetch(API_URL, {
+    const device = await get("meta", "device");
+
+    if (!device) {
+      throw new Error("Perangkat belum terdaftar.");
+    }
+
+    const events = (await all("events")).filter(
+      event => event.syncStatus !== "SYNCED"
+    );
+
+    if (!events.length) {
+      msg(
+        "homeMsg",
+        "Tidak ada transaksi yang menunggu sinkronisasi."
+      );
+      return;
+    }
+
+    const response = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8"
       },
       body: JSON.stringify({
         action: "sync",
-        deviceId: d.deviceId,
-        deviceToken: d.deviceToken,
-        events: events
+        deviceId: device.deviceId,
+        deviceToken: device.deviceToken,
+        events
       })
     });
 
-    const j = await r.json();
+    const data = await response.json();
 
-    if (!j.ok) {
-      throw Error(j.message || "Ditolak");
+    if (!data.ok) {
+      throw new Error(data.message || "Sinkronisasi ditolak.");
     }
 
-    for (const id of j.acceptedEventIds || []) {
-      const e = await get("events", id);
+    for (const id of data.acceptedEventIds || []) {
+      const event = await get("events", id);
 
-      if (e) {
-        e.syncStatus = "SYNCED";
-        await put("events", e);
+      if (event) {
+        event.syncStatus = "SYNCED";
+        await put("events", event);
       }
     }
 
     msg(
       "homeMsg",
-      "Sinkronisasi selesai. Diterima: " +
-      (j.acceptedEventIds || []).length +
-      "; konflik: " +
-      (j.conflicts || []).length +
-      ". Konflik harus diperiksa di laporan pusat."
+      "Sinkronisasi selesai.\n" +
+      "Transaksi diterima: " +
+      (data.acceptedEventIds || []).length +
+      "\nKonflik: " +
+      (data.conflicts || []).length +
+      "\n\nKonflik harus diperiksa pada database pusat."
     );
 
-  } catch (e) {
-    msg("homeMsg", "Sinkronisasi gagal: " + e.message);
+  } catch (error) {
+    msg(
+      "homeMsg",
+      "Sinkronisasi gagal: " + error.message
+    );
   }
 
   await updateStats();
 }
 
-/* HAPUS REGISTRASI LOKAL */
-async function resetDevice() {
-  if (!confirm(
-    "Hapus registrasi lokal? Database tiket dan log tidak ikut dihapus."
-  )) {
-    return;
-  }
+// ======================================================
+// HAPUS REGISTRASI LOKAL
+// ======================================================
 
-  const t = db.transaction("meta", "readwrite");
-  t.objectStore("meta").delete("device");
+async function resetDevice() {
+  const confirmed = confirm(
+    "Hapus registrasi perangkat ini?\n\n" +
+    "Database tiket dan log transaksi TIDAK akan dihapus."
+  );
+
+  if (!confirmed) return;
+
+  await deleteItem("meta", "device");
 
   location.reload();
 }
 
-/* IMPOR CSV KHUSUS SUPERUSER */
+// ======================================================
+// IMPOR CSV SUPERUSER
+// ======================================================
+
 function parseCSV(line) {
-  const a = [];
-  let s = "";
-  let q = false;
+  const values = [];
+  let value = "";
+  let quoted = false;
 
   for (let i = 0; i < line.length; i++) {
-    const c = line[i];
+    const char = line[i];
 
-    if (c === '"') {
-      if (q && line[i + 1] === '"') {
-        s += '"';
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') {
+        value += '"';
         i++;
       } else {
-        q = !q;
+        quoted = !quoted;
       }
-    } else if (c === "," && !q) {
-      a.push(s);
-      s = "";
+
+    } else if (char === "," && !quoted) {
+      values.push(value);
+      value = "";
+
     } else {
-      s += c;
+      value += char;
     }
   }
 
-  a.push(s);
-  return a;
+  values.push(value);
+
+  return values;
 }
 
 async function importCSV() {
-  const d = await get("meta", "device");
+  const device = await get("meta", "device");
 
-  if (!d || d.role !== "SUPERUSER") {
-    msg("adminMsg", "Akses ditolak. Khusus SUPERUSER.");
+  if (!device || device.role !== "SUPERUSER") {
+    msg(
+      "adminMsg",
+      "Akses ditolak. Khusus SUPERUSER."
+    );
     return;
   }
 
-  const f = $("csvFile").files[0];
+  const file = $("csvFile").files[0];
 
-  if (!f) {
-    return msg("adminMsg", "Pilih CSV terlebih dahulu");
+  if (!file) {
+    msg("adminMsg", "Pilih file CSV terlebih dahulu.");
+    return;
   }
 
-  const lines = (await f.text())
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .filter(Boolean);
+  try {
+    const lines = (await file.text())
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter(line => line.trim());
 
-  const h = parseCSV(lines.shift())
-    .map(x => x.trim().toUpperCase());
-
-  const ti = h.indexOf("QR_TOKEN");
-  const si = h.indexOf("STATUS");
-
-  if (ti < 0) {
-    return msg("adminMsg", "Header QR_TOKEN wajib ada");
-  }
-
-  let n = 0;
-
-  for (const line of lines) {
-    const c = parseCSV(line);
-    const token = (c[ti] || "").trim();
-
-    if (!token) continue;
-
-    const status = (
-      si >= 0 ? (c[si] || "UNACTIVATED") : "UNACTIVATED"
-    ).trim().toUpperCase();
-
-    if (!["UNACTIVATED", "ACTIVATED", "USED"].includes(status)) {
-      continue;
+    if (!lines.length) {
+      throw new Error("File CSV kosong.");
     }
 
-    await put("tickets", {
-      token: token,
-      status: status
-    });
+    const headers = parseCSV(lines.shift())
+      .map(value => value.trim().toUpperCase());
 
-    n++;
+    const tokenIndex = headers.indexOf("QR_TOKEN");
+    const statusIndex = headers.indexOf("STATUS");
+
+    if (tokenIndex < 0) {
+      throw new Error("Header QR_TOKEN wajib tersedia.");
+    }
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const line of lines) {
+      const columns = parseCSV(line);
+      const token = (columns[tokenIndex] || "").trim();
+
+      if (!token) {
+        skipped++;
+        continue;
+      }
+
+      const status = (
+        statusIndex >= 0
+          ? columns[statusIndex] || "UNACTIVATED"
+          : "UNACTIVATED"
+      ).trim().toUpperCase();
+
+      if (![
+        "UNACTIVATED",
+        "ACTIVATED",
+        "USED"
+      ].includes(status)) {
+        skipped++;
+        continue;
+      }
+
+      const old = await get("tickets", token);
+
+      // Jangan menurunkan status tiket yang sudah lebih maju.
+      const rank = {
+        UNACTIVATED: 0,
+        ACTIVATED: 1,
+        USED: 2
+      };
+
+      if (!old || rank[status] >= rank[old.status]) {
+        await put("tickets", {
+          ...(old || {}),
+          token,
+          status
+        });
+        imported++;
+      } else {
+        skipped++;
+      }
+    }
+
+    msg(
+      "adminMsg",
+      "Impor CSV selesai.\n" +
+      "Data diproses: " + imported +
+      "\nDilewati: " + skipped
+    );
+
+    await updateStats();
+
+  } catch (error) {
+    msg("adminMsg", "Impor CSV gagal: " + error.message);
   }
-
-  msg("adminMsg", n + " tiket diimpor.");
-  await updateStats();
 }
 
+// ======================================================
+// EVENT ONLINE / OFFLINE
+// ======================================================
+
+window.addEventListener("online", () => {
+  const home = $("home");
+
+  if (!home.classList.contains("hidden")) {
+    msg("homeMsg", "Koneksi internet tersedia kembali.");
+  }
+});
+
+window.addEventListener("offline", () => {
+  const home = $("home");
+
+  if (!home.classList.contains("hidden")) {
+    msg(
+      "homeMsg",
+      "Koneksi internet terputus. Aplikasi tetap dapat digunakan dengan database lokal."
+    );
+  }
+});
+
+// ======================================================
+// TUTUP KAMERA SAAT MENINGGALKAN HALAMAN
+// ======================================================
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopCamera();
+  }
+});
+
+window.addEventListener("pagehide", () => {
+  stopCamera();
+});
+
+// ======================================================
+// MULAI APLIKASI
+// ======================================================
+
 window.addEventListener("load", () => {
-  init().catch(e => {
-    alert("Gagal memulai aplikasi: " + e.message);
+  init().catch(error => {
+    console.error(error);
+
+    alert(
+      "Gagal memulai aplikasi: " + error.message
+    );
   });
 });
