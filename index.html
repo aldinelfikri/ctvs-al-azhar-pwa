@@ -3,131 +3,268 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <meta name="description" content="CTVS AL-AZHAR - Concert Ticket Validation System">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="CTVS AL-AZHAR Ticket Validation System">
   <title>CTVS AL-AZHAR</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header>
-  <h1>CTVS</h1>
-  <p>Concert Ticket Validation System</p>
-  <span id="deviceBadge" class="badge">Perangkat belum terdaftar</span>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">C</div>
+    <div>
+      <h1>CTVS</h1>
+      <p>Concert Ticket Validation System</p>
+    </div>
+  </div>
+  <span id="deviceBadge" class="role-badge">Perangkat belum terdaftar</span>
 </header>
 
-<main>
+<main class="app-shell">
 
-  <section id="register" class="panel">
+  <!-- REGISTRASI -->
+  <section id="register" class="panel auth-panel hidden">
+    <div class="section-kicker">DEVICE SETUP</div>
     <h2>Registrasi Perangkat</h2>
-    <p class="muted">
-      Registrasi pertama kali dilakukan saat internet tersedia.
-      Hak akses perangkat ditentukan administrator.
+    <p class="intro">
+      Daftarkan perangkat menggunakan kode yang diberikan administrator.
+      Registrasi awal memerlukan koneksi internet.
     </p>
 
-    <label>
-      Nama perangkat/petugas
-      <input id="deviceName" placeholder="Contoh: Gate 1 - Scanner A" autocomplete="off">
-    </label>
+    <label for="deviceName">Nama perangkat / petugas</label>
+    <input id="deviceName" autocomplete="off"
+      placeholder="Contoh: Gate 1 - Scanner A">
 
-    <label>
-      Kode registrasi
-      <input id="enrollCode" type="password" placeholder="Kode dari administrator">
-    </label>
+    <label for="enrollCode">Kode registrasi</label>
+    <input id="enrollCode" type="password"
+      placeholder="Masukkan kode registrasi">
 
-    <button id="enrollBtn">Daftarkan Perangkat</button>
-    <p id="deviceIdText" class="tiny"></p>
-    <p id="registerMsg" class="message" aria-live="polite"></p>
+    <button id="enrollBtn" class="btn btn-primary">
+      Daftarkan Perangkat
+    </button>
+
+    <p id="deviceIdText" class="small-note"></p>
+    <p id="registerMsg" class="feedback" aria-live="polite"></p>
   </section>
 
-  <section id="home" class="panel hidden">
-    <h2 id="deviceTitle">Perangkat</h2>
-    <p id="deviceDetail" class="muted"></p>
+  <!-- BERANDA -->
+  <section id="home" class="hidden">
 
-    <div class="stats hidden">
-      <div><b id="nTickets">0</b><span>Database tiket</span></div>
-      <div><b id="nActivated">0</b><span>Tiket teraktivasi</span></div>
-      <div><b id="nUsed">0</b><span>Tiket digunakan</span></div>
-      <div><b id="nPending">0</b><span>Belum sinkron</span></div>
+    <div class="welcome-panel">
+      <div>
+        <div class="section-kicker">CONTROL PANEL</div>
+        <h2 id="deviceTitle">Perangkat</h2>
+        <p id="deviceDetail">Informasi perangkat</p>
+      </div>
+      <div class="welcome-symbol">
+        <span>CTVS</span>
+      </div>
     </div>
 
-    <div id="actions" class="stack"></div>
+    <!-- Statistik khusus SUPERUSER -->
+    <section class="panel stats-panel hidden">
+      <div class="section-heading">
+        <div>
+          <div class="section-kicker">DATABASE OVERVIEW</div>
+          <h3>Ringkasan Tiket</h3>
+        </div>
+        <span class="live-indicator">LOKAL</span>
+      </div>
 
-    <hr>
+      <div class="stats-grid">
+        <div class="stat-card stat-total">
+          <span class="stat-label">Database tiket</span>
+          <strong id="nTickets">0</strong>
+          <span class="stat-caption">Total tiket tersimpan</span>
+        </div>
 
-    <h3>Persiapan Offline dan Transfer Data</h3>
-    <button class="secondary" id="downloadDb">Unduh database pusat (online)</button>
-    <button class="secondary" id="exportBundle">Ekspor data perangkat</button>
+        <div class="stat-card">
+          <span class="stat-label">Tiket teraktivasi</span>
+          <strong id="nActivated">0</strong>
+          <span class="stat-caption">Termasuk tiket USED</span>
+        </div>
 
-    <label class="fileLabel">
-      Impor data perangkat lain / paket aktivasi
-      <input type="file" id="importBundle" accept=".json,application/json">
-    </label>
+        <div class="stat-card">
+          <span class="stat-label">Tiket digunakan</span>
+          <strong id="nUsed">0</strong>
+          <span class="stat-caption">Berhasil Gate Entry</span>
+        </div>
 
-    <button class="secondary" id="syncBtn">Sinkronisasi ke pusat (online)</button>
-    <p id="homeMsg" class="message" aria-live="polite"></p>
-    <button class="danger" id="resetBtn">Hapus registrasi perangkat ini</button>
+        <div class="stat-card">
+          <span class="stat-label">Belum sinkron</span>
+          <strong id="nPending">0</strong>
+          <span class="stat-caption">Menunggu koneksi pusat</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- AKSI UTAMA -->
+    <section class="panel action-panel">
+      <div class="section-heading">
+        <div>
+          <div class="section-kicker">TICKET OPERATIONS</div>
+          <h3>Operasional Tiket</h3>
+          <p class="muted">Pilih fungsi sesuai hak akses perangkat.</p>
+        </div>
+      </div>
+
+      <div id="actions" class="action-grid"></div>
+    </section>
+
+    <!-- TRANSFER DATA -->
+    <section class="panel transfer-panel">
+      <div class="section-heading">
+        <div>
+          <div class="section-kicker">OFFLINE MANAGEMENT</div>
+          <h3>Persiapan Offline dan Transfer Data</h3>
+        </div>
+        <div class="transfer-icon">⇄</div>
+      </div>
+
+      <div class="transfer-list">
+        <div class="transfer-item">
+          <div class="transfer-copy">
+            <strong>Unduh database pusat</strong>
+            <span>Perbarui database tiket dari server pusat saat online.</span>
+          </div>
+          <button id="downloadDb" class="btn btn-secondary">
+            Unduh Database
+          </button>
+        </div>
+
+        <div class="transfer-item">
+          <div class="transfer-copy">
+            <strong>Ekspor data perangkat</strong>
+            <span>Buat paket data untuk dipindahkan ke perangkat lain.</span>
+          </div>
+          <button id="exportBundle" class="btn btn-secondary">
+            Ekspor Data
+          </button>
+        </div>
+
+        <div class="transfer-item transfer-import">
+          <div class="transfer-copy">
+            <strong>Impor data perangkat</strong>
+            <span>Gabungkan paket data atau paket aktivasi dari perangkat lain.</span>
+          </div>
+          <label class="file-button">
+            Pilih File
+            <input id="importBundle" type="file"
+              accept=".json,application/json">
+          </label>
+        </div>
+
+        <div class="transfer-item">
+          <div class="transfer-copy">
+            <strong>Sinkronisasi ke pusat</strong>
+            <span>Kirim transaksi lokal ke Google Sheets.</span>
+          </div>
+          <button id="syncBtn" class="btn btn-primary">
+            Sinkronisasi
+          </button>
+        </div>
+      </div>
+
+      <p id="homeMsg" class="feedback" aria-live="polite"></p>
+    </section>
+
+    <section class="account-area">
+      <button id="resetBtn" class="btn btn-danger">
+        Hapus Registrasi Perangkat Ini
+      </button>
+      <p class="small-note">
+        Penghapusan registrasi tidak menghapus database tiket lokal.
+      </p>
+    </section>
   </section>
 
-  <section id="scan" class="panel hidden">
-    <div class="row">
-      <button id="backBtn" class="secondary small">← Kembali</button>
-      <span id="modeBadge" class="badge"></span>
+  <!-- PEMINDAIAN -->
+  <section id="scan" class="panel scan-panel hidden">
+    <div class="scan-topline">
+      <button id="backBtn" class="btn btn-back">← Kembali</button>
+      <span id="modeBadge" class="mode-badge">MODE</span>
     </div>
 
+    <div class="section-kicker">TICKET VALIDATION</div>
     <h2 id="scanHeading">Validasi QR</h2>
-    <p id="scanDescription" class="muted">
-      Arahkan kamera ke QR tiket. Kamera berhenti setelah satu QR terbaca.
+    <p id="scanDescription" class="intro">
+      Pindai QR tiket untuk memproses validasi.
     </p>
 
     <div id="cameraPanel" class="camera-panel hidden">
       <video id="cameraVideo" autoplay muted playsinline></video>
-      <div id="cameraStatus" class="camera-status">Kamera belum aktif</div>
+      <div id="cameraStatus" class="camera-status">
+        Kamera belum aktif
+      </div>
     </div>
 
-    <button id="startCameraBtn" class="secondary">Buka Kamera</button>
-    <button id="stopCameraBtn" class="secondary hidden">Tutup Kamera</button>
+    <div class="camera-actions">
+      <button id="startCameraBtn" class="btn btn-secondary">
+        Buka Kamera
+      </button>
+      <button id="stopCameraBtn" class="btn btn-secondary hidden">
+        Tutup Kamera
+      </button>
+    </div>
 
-    <label>
-      Token Tiket
-      <input id="tokenInput" autocomplete="off" autocapitalize="off"
-             spellcheck="false" placeholder="Token QR">
-    </label>
+    <div class="manual-entry">
+      <label for="tokenInput">Token tiket</label>
+      <input id="tokenInput" autocomplete="off"
+        autocapitalize="off" spellcheck="false"
+        placeholder="Masukkan token QR">
+      <button id="processBtn" class="btn btn-primary">
+        Proses Validasi
+      </button>
+    </div>
 
-    <button id="processBtn">Proses Validasi</button>
-    <button id="nextScanBtn" class="secondary hidden">PINDAI TIKET BERIKUTNYA</button>
+    <button id="nextScanBtn" class="btn btn-next hidden">
+      PINDAI TIKET BERIKUTNYA
+    </button>
 
     <div id="scanResult" class="result hidden" aria-live="polite"></div>
 
     <div id="batchPanel" class="batch-panel hidden">
+      <div class="section-kicker">BATCH PROGRESS</div>
       <h3>Ringkasan Aktivasi Batch</h3>
-      <p id="batchSummary" class="message">Belum ada tiket diproses.</p>
-      <p class="tiny muted">Maksimal 50 tiket dalam satu sesi batch.</p>
-      <button id="finishBatchBtn" class="secondary">Selesai Aktivasi Batch</button>
+      <p id="batchSummary" class="feedback">
+        Belum ada tiket diproses.
+      </p>
+      <button id="finishBatchBtn" class="btn btn-secondary">
+        Selesai Aktivasi Batch
+      </button>
     </div>
 
-    <p class="tiny muted">
-      Untuk Gate: setelah status berhasil menjadi USED, beri tanda fluoresen
-      pada gelang dan pasangkan gelang sekali-pasang sebelum penonton masuk.
+    <p class="gate-instruction">
+      Untuk Gate Entry: setelah status berhasil menjadi USED,
+      beri tanda fluoresen pada gelang dan pasangkan gelang sekali-pasang
+      sebelum penonton masuk.
     </p>
   </section>
 
+  <!-- IMPOR CSV -->
   <section id="admin" class="panel hidden">
+    <button id="adminBack" class="btn btn-back">← Kembali</button>
+    <div class="section-kicker">SUPERUSER TOOLS</div>
     <h2>Impor Database CSV</h2>
-    <p class="muted">
+    <p class="intro">
       CSV minimal memiliki header QR_TOKEN dan STATUS.
       Status awal tiket adalah UNACTIVATED.
     </p>
-    <input type="file" id="csvFile" accept=".csv,text/csv">
-    <button id="importCsvBtn">Impor CSV</button>
-    <p id="adminMsg" class="message" aria-live="polite"></p>
-    <button id="adminBack" class="secondary">Kembali</button>
+    <input id="csvFile" type="file" accept=".csv,text/csv">
+    <button id="importCsvBtn" class="btn btn-primary">
+      Impor CSV
+    </button>
+    <p id="adminMsg" class="feedback" aria-live="polite"></p>
   </section>
 
 </main>
 
-<footer>CTVS AL-AZHAR • Offline Ticket Validation</footer>
+<footer>
+  <strong>CTVS AL-AZHAR</strong>
+  <span>Offline Ticket Validation System</span>
+</footer>
 
 <script src="app.js"></script>
 </body>
