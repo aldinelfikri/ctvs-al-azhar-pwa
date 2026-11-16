@@ -1,8 +1,10 @@
+"use strict";
+
 // ======================================================
 // CTVS AL-AZHAR SERVICE WORKER
 // ======================================================
 
-const CACHE_NAME = "ctvs-alazhar-v2";
+const CACHE_NAME = "ctvs-alazhar-v3";
 
 const APP_FILES = [
   "./",
@@ -33,10 +35,8 @@ self.addEventListener("activate", event => {
     caches.keys()
       .then(keys => Promise.all(
         keys
-          .filter(key =>
-            key.startsWith("ctvs-alazhar-") &&
-            key !== CACHE_NAME
-          )
+          .filter(key => key.startsWith("ctvs-alazhar-"))
+          .filter(key => key !== CACHE_NAME)
           .map(key => caches.delete(key))
       ))
       .then(() => self.clients.claim())
@@ -54,7 +54,7 @@ self.addEventListener("fetch", event => {
 
   const url = new URL(request.url);
 
-  // Jangan menyimpan respons Google Apps Script.
+  // Jangan cache Google Apps Script.
   if (
     url.hostname === "script.google.com" ||
     url.hostname === "script.googleusercontent.com"
@@ -62,11 +62,9 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // Jangan menangani permintaan dari luar domain aplikasi.
+  // Hanya menangani file dari domain aplikasi.
   if (url.origin !== self.location.origin) return;
 
-  // Network-first: ambil versi terbaru jika internet tersedia.
-  // Jika offline, gunakan cache lokal.
   event.respondWith(
     fetch(request)
       .then(response => {
@@ -94,7 +92,7 @@ self.addEventListener("fetch", event => {
         }
 
         return new Response(
-          "Aplikasi offline dan file belum tersedia di cache.",
+          "Aplikasi sedang offline dan file belum tersedia di cache.",
           {
             status: 503,
             statusText: "Offline",
