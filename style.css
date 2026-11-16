@@ -1,3 +1,7 @@
+/* =====================================================
+   CTVS AL-AZHAR - STYLE
+===================================================== */
+
 * {
   box-sizing: border-box;
 }
@@ -257,7 +261,7 @@ hr {
   text-align: center;
 }
 
-/* BATCH */
+/* BATCH ACTIVATION */
 
 .batch-panel {
   margin-top: 16px;
@@ -283,18 +287,18 @@ button.loading::after {
   top: 50%;
   left: 50%;
   margin: -9px 0 0 -9px;
-  border: 2px solid currentColor;
+  border: 2px solid #fff;
   border-top-color: transparent;
   border-radius: 50%;
-  animation: spin .7s linear infinite;
-  color: #fff;
+  animation: ctvs-spin .7s linear infinite;
 }
 
 button.secondary.loading::after {
-  color: #111827;
+  border-color: #111827;
+  border-top-color: transparent;
 }
 
-@keyframes spin {
+@keyframes ctvs-spin {
   to {
     transform: rotate(360deg);
   }
@@ -307,11 +311,24 @@ footer {
   font-size: 12px;
 }
 
+@media (max-width: 420px) {
+  .panel {
+    padding: 16px;
+  }
+
+  header {
+    padding: 18px;
+  }
+
+  button {
+    font-size: 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    scroll-behavior: auto !important;
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
