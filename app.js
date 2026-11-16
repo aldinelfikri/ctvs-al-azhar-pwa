@@ -1,11 +1,13 @@
+"use strict";
+
 // ======================================================
-// CTVS AL-AZHAR - OFFLINE TICKET VALIDATION SYSTEM
+// CTVS AL-AZHAR
 // ======================================================
 
 const API_URL =
   "https://script.google.com/macros/s/AKfycbwCXKRCUjwPbE8DrRc0ZjLzZhNsAjnmXSYxAuyI-ajFZk5irFkL_mvOKZmRZvjsXmC4rA/exec";
 
-const DB = "ctvs_2650_v2";
+const DB_NAME = "ctvs_2650_v2";
 const BATCH_LIMIT = 50;
 
 const $ = id => document.getElementById(id);
@@ -24,17 +26,16 @@ let detectionBusy = false;
 
 let batchResults = {
   success: 0,
-  failed: 0,
-  tokens: []
+  failed: 0
 };
 
 // ======================================================
-// DATABASE
+// DATABASE INDEXEDDB
 // ======================================================
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB, 1);
+    const request = indexedDB.open(DB_NAME, 1);
 
     request.onupgradeneeded = () => {
       const database = request.result;
@@ -59,7 +60,9 @@ function openDB() {
 
 function get(store, key) {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(store).objectStore(store).get(key);
+    const request = db.transaction(store)
+      .objectStore(store).get(key);
+
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -77,7 +80,9 @@ function put(store, value) {
 
 function all(store) {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(store).objectStore(store).getAll();
+    const request = db.transaction(store)
+      .objectStore(store).getAll();
+
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -94,19 +99,17 @@ function deleteItem(store, key) {
 }
 
 // ======================================================
-// UTILITAS DAN TAMPILAN
+// UTILITAS
 // ======================================================
 
 function show(id) {
-  ["register", "home", "scan", "admin"].forEach(section => {
-    const element = $(section);
-    if (element) element.classList.toggle("hidden", section !== id);
+  ["register", "home", "scan", "admin"].forEach(name => {
+    $(name)?.classList.toggle("hidden", name !== id);
   });
 }
 
 function msg(id, text) {
-  const element = $(id);
-  if (element) element.textContent = text;
+  if ($(id)) $(id).textContent = text;
 }
 
 function deviceId() {
@@ -151,11 +154,11 @@ function setLoading(button, active, label) {
   }
 }
 
-async function withLoading(button, label, task) {
+async function withLoading(button, label, callback) {
   setLoading(button, true, label);
 
   try {
-    return await task();
+    return await callback();
   } finally {
     setLoading(button, false);
   }
@@ -165,12 +168,16 @@ function bindClick(id, callback) {
   const element = $(id);
 
   if (!element) {
-    console.warn("Elemen tidak ditemukan:", id);
+    console.error("Elemen HTML tidak ditemukan:", id);
     return;
   }
 
   element.addEventListener("click", callback);
 }
+
+// ======================================================
+// EVENT LISTENER
+// ======================================================
 
 function bindEvents() {
   bindClick("enrollBtn", () =>
@@ -218,12 +225,11 @@ function bindEvents() {
   bindClick("nextScanBtn", nextScan);
   bindClick("finishBatchBtn", finishBatch);
 
-  const importInput = $("importBundle");
-  if (importInput) importInput.addEventListener("change", importBundle);
+  $("importBundle")?.addEventListener("change", importBundle);
 }
 
 // ======================================================
-// INISIALISASI
+// INISIALISASI APLIKASI
 // ======================================================
 
 async function init() {
@@ -233,7 +239,7 @@ async function init() {
     try {
       await navigator.serviceWorker.register("./sw.js");
     } catch (error) {
-      console.warn("Service Worker gagal:", error);
+      console.warn("Service Worker:", error);
     }
   }
 
@@ -258,7 +264,7 @@ async function init() {
 }
 
 // ======================================================
-// REGISTRASI
+// REGISTRASI PERANGKAT
 // ======================================================
 
 async function enroll() {
@@ -304,7 +310,7 @@ async function enroll() {
 
     await put("meta", device);
 
-    if ($("enrollCode")) $("enrollCode").value = "";
+    $("enrollCode").value = "";
 
     await renderHome(device);
     msg("homeMsg", "Registrasi berhasil. Hak akses: " + device.role);
@@ -315,27 +321,24 @@ async function enroll() {
 }
 
 // ======================================================
-// BERANDA BERDASARKAN HAK AKSES
+// BERANDA DAN HAK AKSES
 // ======================================================
 
 async function renderHome(device) {
   show("home");
 
-  const stats = document.querySelector(".stats");
-  if (stats) {
-    stats.classList.toggle("hidden", device.role !== "SUPERUSER");
-  }
+  const stats = document.querySelector(".stats-panel");
+  stats?.classList.toggle("hidden", device.role !== "SUPERUSER");
 
-  if (device.role === "SUPERUSER") {
-    $("deviceTitle").textContent = "SUPERUSER - " + device.name;
-    $("deviceBadge").textContent = "SUPERUSER / " + device.name;
-  } else if (device.role === "GATE") {
-    $("deviceTitle").textContent = "Gate Entry - " + device.name;
-    $("deviceBadge").textContent = "GATE / " + device.name;
-  } else {
-    $("deviceTitle").textContent = "Ticketing - " + device.name;
-    $("deviceBadge").textContent = "TICKETING / " + device.name;
-  }
+  $("deviceTitle").textContent =
+    device.role === "SUPERUSER"
+      ? "SUPERUSER - " + device.name
+      : device.role === "GATE"
+        ? "Gate Entry - " + device.name
+        : "Ticketing - " + device.name;
+
+  $("deviceBadge").textContent =
+    device.role + " / " + device.name;
 
   $("deviceDetail").textContent =
     "ID: " + device.deviceId + " • Hak akses: " + device.role;
@@ -344,28 +347,42 @@ async function renderHome(device) {
   actions.innerHTML = "";
 
   if (["TICKETING", "SUPERUSER"].includes(device.role)) {
-    addAction(actions, "ACTIVATION", () => openMode("ACTIVATION", false));
-    addAction(
-      actions,
-      "BATCH ACTIVATION (MAKS. 50 TIKET)",
-      () => openMode("ACTIVATION", true)
-    );
+    addAction(actions, "ACTIVATION", "Aktivasi satu tiket", "single",
+      () => openMode("ACTIVATION", false));
+
+    addAction(actions, "BATCH ACTIVATION", "Maksimal 50 tiket per sesi", "batch",
+      () => openMode("ACTIVATION", true));
   }
 
   if (device.role === "GATE") {
-    addAction(actions, "GATE ENTRY", () => openMode("GATE", false));
+    addAction(actions, "GATE ENTRY", "Validasi tiket masuk", "gate",
+      () => openMode("GATE", false));
   }
 
   if (device.role === "SUPERUSER") {
-    addAction(actions, "SUPERUSER: Impor CSV", () => show("admin"));
+    addAction(actions, "IMPOR DATABASE CSV", "Pengelolaan database", "admin",
+      () => show("admin"));
   }
 
   await updateStats();
 }
 
-function addAction(parent, label, callback) {
+function addAction(parent, title, description, type, callback) {
   const button = document.createElement("button");
-  button.textContent = label;
+  button.type = "button";
+  button.className = "action-card action-" + type;
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+
+  const detail = document.createElement("span");
+  detail.textContent = description;
+
+  const arrow = document.createElement("span");
+  arrow.className = "action-arrow";
+  arrow.textContent = "→";
+
+  button.append(heading, detail, arrow);
 
   button.addEventListener("click", () => {
     withLoading(button, "Membuka...", callback);
@@ -375,7 +392,7 @@ function addAction(parent, label, callback) {
 }
 
 // ======================================================
-// MEMBUKA MODE VALIDASI
+// MODE AKTIVASI / GATE
 // ======================================================
 
 async function openMode(selectedMode, isBatch) {
@@ -390,12 +407,12 @@ async function openMode(selectedMode, isBatch) {
     selectedMode === "ACTIVATION" &&
     !["TICKETING", "SUPERUSER"].includes(device.role)
   ) {
-    alert("Perangkat ini tidak memiliki hak Ticketing.");
+    alert("Perangkat tidak memiliki hak Ticketing.");
     return;
   }
 
   if (selectedMode === "GATE" && device.role !== "GATE") {
-    alert("Perangkat ini tidak memiliki hak Gate.");
+    alert("Perangkat tidak memiliki hak Gate.");
     return;
   }
 
@@ -405,9 +422,10 @@ async function openMode(selectedMode, isBatch) {
   batchMode = Boolean(isBatch);
   batchFinished = false;
 
-  batchResults = { success: 0, failed: 0, tokens: [] };
+  batchResults = { success: 0, failed: 0 };
 
-  $("modeBadge").textContent = batchMode ? "BATCH ACTIVATION" : selectedMode;
+  $("modeBadge").textContent =
+    batchMode ? "BATCH ACTIVATION" : selectedMode;
 
   $("scanHeading").textContent =
     selectedMode === "GATE"
@@ -416,9 +434,10 @@ async function openMode(selectedMode, isBatch) {
         ? "Batch Activation"
         : "Aktivasi Tiket";
 
-  $("scanDescription").textContent = batchMode
-    ? "Pindai tiket satu per satu. Maksimal 50 tiket dalam satu sesi."
-    : "Pindai satu tiket. Kamera berhenti setelah satu QR terbaca.";
+  $("scanDescription").textContent =
+    batchMode
+      ? "Pindai tiket satu per satu. Maksimal 50 tiket per sesi."
+      : "Pindai satu tiket. Kamera akan berhenti setelah satu QR terbaca.";
 
   $("scanResult").className = "result hidden";
   $("batchPanel").classList.toggle("hidden", !batchMode);
@@ -427,6 +446,7 @@ async function openMode(selectedMode, isBatch) {
 
   const params = new URLSearchParams(location.search);
   const token = params.get("t") || params.get("token");
+
   if (token) $("tokenInput").value = token;
 
   show("scan");
@@ -434,52 +454,35 @@ async function openMode(selectedMode, isBatch) {
 }
 
 // ======================================================
-// HASIL VALIDASI DAN BATCH
+// HASIL VALIDASI
 // ======================================================
 
 function result(text, type) {
-  const element = $("scanResult");
-  if (!element) return;
-
-  element.textContent = text;
-  element.className = "result " + type;
-}
-
-function recordBatch(success, token) {
-  if (!batchMode) return;
-
-  if (success) batchResults.success++;
-  else batchResults.failed++;
-
-  batchResults.tokens.push(token);
-  updateBatchSummary();
+  $("scanResult").textContent = text;
+  $("scanResult").className = "result " + type;
 }
 
 function updateBatchSummary() {
-  if (!$("batchSummary")) return;
-
   $("batchSummary").textContent =
     "Berhasil: " + batchResults.success +
     "\nGagal / tidak memenuhi syarat: " + batchResults.failed +
     "\nTotal diproses: " +
     (batchResults.success + batchResults.failed) +
-    "\nSisa kuota sesi: " +
+    "\nSisa kuota: " +
     Math.max(0, BATCH_LIMIT - batchResults.success - batchResults.failed);
 }
 
 function finishBatch() {
   batchFinished = true;
   stopCamera();
+  $("nextScanBtn").classList.add("hidden");
 
-  if ($("batchSummary")) {
-    $("batchSummary").textContent += "\n\nAktivasi batch telah diakhiri.";
-  }
-
-  $("nextScanBtn")?.classList.add("hidden");
+  $("batchSummary").textContent +=
+    "\n\nSesi aktivasi batch telah diakhiri.";
 }
 
 // ======================================================
-// PROSES TIKET
+// VALIDASI TIKET
 // ======================================================
 
 async function processTicket() {
@@ -495,11 +498,10 @@ async function processTicket() {
     return;
   }
 
-  if (
-    batchMode &&
-    batchResults.success + batchResults.failed >= BATCH_LIMIT
-  ) {
-    result("BATAS 50 TIKET UNTUK SESI BATCH TELAH TERCAPAI.", "warn");
+  const totalBatch = batchResults.success + batchResults.failed;
+
+  if (batchMode && totalBatch >= BATCH_LIMIT) {
+    result("BATAS 50 TIKET TELAH TERCAPAI.", "warn");
     stopDetectionOnly();
     $("nextScanBtn").classList.add("hidden");
     return;
@@ -513,7 +515,7 @@ async function processTicket() {
       "TICKET INVALID\n(ENTRY NOT PERMITTED)\nToken tidak ditemukan pada database lokal.",
       "bad"
     );
-    recordBatch(false, token);
+    recordBatch(false);
     pauseAfterScan();
     return;
   }
@@ -546,8 +548,10 @@ async function processTicket() {
         "TICKET HAS BEEN VALIDATED\n(GATE ENTRY PERMITTED)",
         "ok"
       );
+
     } else if (ticket.status === "ACTIVATED") {
       result("TICKET ALREADY ACTIVATED", "warn");
+
     } else {
       result("TICKET HAS BEEN USED\n(ENTRY NOT PERMITTED)", "bad");
     }
@@ -563,14 +567,13 @@ async function processTicket() {
         "TICKET VALID\n(ENTRY PERMITTED)\n\nBERI TANDA FLUORESEN DAN PASANG GELANG SEKARANG.",
         "ok"
       );
+
     } else if (ticket.status === "UNACTIVATED") {
       result("TICKET INVALID\n(ENTRY NOT PERMITTED)", "bad");
+
     } else {
       result("TICKET HAS BEEN USED\n(ENTRY NOT PERMITTED)", "bad");
     }
-  } else {
-    result("Pilih fungsi validasi terlebih dahulu.", "warn");
-    return;
   }
 
   if (eventType) {
@@ -587,25 +590,31 @@ async function processTicket() {
     });
   }
 
-  if (batchMode) recordBatch(successful, token);
-
+  recordBatch(successful);
   await updateStats();
   pauseAfterScan();
 }
 
+function recordBatch(success) {
+  if (!batchMode) return;
+
+  if (success) batchResults.success++;
+  else batchResults.failed++;
+
+  updateBatchSummary();
+}
+
 // ======================================================
-// PEMINDAIAN SATU PER SATU
+// PEMINDAIAN BERIKUTNYA
 // ======================================================
 
 function pauseAfterScan() {
   stopDetectionOnly();
 
-  $("nextScanBtn")?.classList.remove("hidden");
+  $("nextScanBtn").classList.remove("hidden");
 
-  if ($("cameraStatus")) {
-    $("cameraStatus").textContent =
-      "QR selesai diproses. Kamera dijeda.";
-  }
+  $("cameraStatus").textContent =
+    "QR selesai diproses. Kamera dijeda.";
 }
 
 async function nextScan() {
@@ -618,7 +627,7 @@ async function nextScan() {
     batchMode &&
     batchResults.success + batchResults.failed >= BATCH_LIMIT
   ) {
-    result("Batas 50 tiket telah tercapai. Akhiri sesi batch.", "warn");
+    result("Batas 50 tiket tercapai. Akhiri sesi batch.", "warn");
     $("nextScanBtn").classList.add("hidden");
     return;
   }
@@ -629,7 +638,7 @@ async function nextScan() {
 
   if (cameraStream) {
     startDetectionOnly();
-  } else if ($("cameraStatus")) {
+  } else {
     $("cameraStatus").textContent =
       "Tekan Buka Kamera untuk pemindaian berikutnya.";
   }
@@ -641,13 +650,13 @@ async function nextScan() {
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    result("Browser tidak mendukung akses kamera. Masukkan token secara manual.", "warn");
+    result("Browser tidak mendukung akses kamera. Masukkan token manual.", "warn");
     return;
   }
 
   if (!("BarcodeDetector" in window)) {
     result(
-      "Browser belum mendukung pemindai QR internal. Gunakan browser yang mendukung BarcodeDetector atau masukkan token secara manual.",
+      "Browser belum mendukung pemindai QR internal. Gunakan browser yang kompatibel atau masukkan token manual.",
       "warn"
     );
     return;
@@ -661,9 +670,8 @@ async function startCamera() {
       video: { facingMode: { ideal: "environment" } }
     });
 
-    const video = $("cameraVideo");
-    video.srcObject = cameraStream;
-    await video.play();
+    $("cameraVideo").srcObject = cameraStream;
+    await $("cameraVideo").play();
 
     $("cameraPanel").classList.remove("hidden");
     $("startCameraBtn").classList.add("hidden");
@@ -684,10 +692,8 @@ function startDetectionOnly() {
   scanLocked = false;
   detectionBusy = false;
 
-  if ($("cameraStatus")) {
-    $("cameraStatus").textContent =
-      "Kamera aktif. Arahkan ke QR tiket.";
-  }
+  $("cameraStatus").textContent =
+    "Kamera aktif. Arahkan ke QR tiket.";
 
   if (cameraTimer) clearInterval(cameraTimer);
   cameraTimer = setInterval(detectQR, 250);
@@ -706,6 +712,7 @@ async function detectQR() {
   if (!cameraRunning || scanLocked || detectionBusy) return;
 
   const video = $("cameraVideo");
+
   if (!video || video.readyState < 2 || !detector) return;
 
   detectionBusy = true;
@@ -714,30 +721,26 @@ async function detectQR() {
     const codes = await detector.detect(video);
     if (!codes?.length) return;
 
-    const value = String(codes[0].rawValue || "").trim();
-    if (!value) return;
+    const raw = String(codes[0].rawValue || "").trim();
+    if (!raw) return;
 
-    const token = extractToken(value);
+    const token = extractToken(raw);
 
     if (!token) {
-      if ($("cameraStatus")) {
-        $("cameraStatus").textContent = "QR terbaca, tetapi token tidak dikenali.";
-      }
+      $("cameraStatus").textContent = "QR terbaca tetapi token tidak dikenali.";
       return;
     }
 
     scanLocked = true;
     stopDetectionOnly();
-    $("tokenInput").value = token;
 
-    if ($("cameraStatus")) {
-      $("cameraStatus").textContent = "QR terbaca: " + token;
-    }
+    $("tokenInput").value = token;
+    $("cameraStatus").textContent = "QR terbaca: " + token;
 
     await processTicket();
 
   } catch (error) {
-    console.warn("Pembacaan QR gagal:", error);
+    console.warn("QR detector:", error);
   } finally {
     detectionBusy = false;
   }
@@ -767,6 +770,7 @@ function stopCamera() {
   }
 
   const video = $("cameraVideo");
+
   if (video) {
     video.pause();
     video.srcObject = null;
@@ -782,19 +786,18 @@ function stopCamera() {
 }
 
 // ======================================================
-// STATISTIK - SUPERUSER SAJA
+// STATISTIK SUPERUSER
 // ======================================================
 
 async function updateStats() {
   const device = await get("meta", "device");
-  const stats = document.querySelector(".stats");
 
   if (!device || device.role !== "SUPERUSER") {
-    stats?.classList.add("hidden");
+    document.querySelector(".stats-panel")?.classList.add("hidden");
     return;
   }
 
-  stats?.classList.remove("hidden");
+  document.querySelector(".stats-panel")?.classList.remove("hidden");
 
   const tickets = await all("tickets");
   const events = await all("events");
@@ -836,11 +839,27 @@ async function downloadDB() {
 
     if (!data.ok) throw new Error(data.message || "Unduhan ditolak.");
 
-    for (const ticket of data.tickets || []) {
-      await put("tickets", {
-        token: ticket.token,
-        status: ticket.status
-      });
+    // Jangan menurunkan status lokal yang sudah lebih maju.
+    const rank = { UNACTIVATED: 0, ACTIVATED: 1, USED: 2 };
+
+    for (const incoming of data.tickets || []) {
+      if (!incoming.token || !(incoming.status in rank)) continue;
+
+      const local = await get("tickets", incoming.token);
+
+      if (
+        !local ||
+        rank[incoming.status] > rank[local.status] ||
+        rank[incoming.status] === rank[local.status]
+      ) {
+        await put("tickets", {
+          ...(local || {}),
+          token: incoming.token,
+          status: rank[local?.status] > rank[incoming.status]
+            ? local.status
+            : incoming.status
+        });
+      }
     }
 
     msg(
@@ -864,6 +883,7 @@ async function downloadDB() {
 
 async function exportBundle() {
   const device = await get("meta", "device");
+
   if (!device) {
     msg("homeMsg", "Perangkat belum terdaftar.");
     return;
@@ -889,10 +909,9 @@ async function exportBundle() {
   const anchor = document.createElement("a");
 
   anchor.href = url;
-  anchor.download =
-    "CTVS_" + device.deviceId + "_" + Date.now() + ".json";
-
+  anchor.download = "CTVS_" + device.deviceId + "_" + Date.now() + ".json";
   anchor.click();
+
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   msg("homeMsg", "Paket data perangkat berhasil diekspor.");
@@ -913,11 +932,7 @@ async function importBundle(event) {
       throw new Error("Format paket tidak dikenali.");
     }
 
-    const rank = {
-      UNACTIVATED: 0,
-      ACTIVATED: 1,
-      USED: 2
-    };
+    const rank = { UNACTIVATED: 0, ACTIVATED: 1, USED: 2 };
 
     for (const incoming of bundle.tickets || []) {
       if (!incoming.token || !(incoming.status in rank)) continue;
@@ -953,12 +968,12 @@ async function importBundle(event) {
 }
 
 // ======================================================
-// SINKRONISASI
+// SINKRONISASI TRANSAKSI
 // ======================================================
 
 async function syncEvents() {
   if (!navigator.onLine) {
-    msg("homeMsg", "Offline. Transaksi tetap tersimpan di perangkat.");
+    msg("homeMsg", "Offline. Transaksi tetap tersimpan secara lokal.");
     return;
   }
 
@@ -987,7 +1002,10 @@ async function syncEvents() {
     });
 
     const data = await response.json();
-    if (!data.ok) throw new Error(data.message || "Sinkronisasi ditolak.");
+
+    if (!data.ok) {
+      throw new Error(data.message || "Sinkronisasi ditolak.");
+    }
 
     for (const id of data.acceptedEventIds || []) {
       const event = await get("events", id);
@@ -1015,7 +1033,7 @@ async function syncEvents() {
 }
 
 // ======================================================
-// RESET REGISTRASI - DATA TIKET TETAP ADA
+// RESET REGISTRASI
 // ======================================================
 
 async function resetDevice() {
@@ -1031,7 +1049,7 @@ async function resetDevice() {
 }
 
 // ======================================================
-// IMPOR CSV - SUPERUSER
+// IMPOR CSV
 // ======================================================
 
 function parseCSV(line) {
@@ -1094,12 +1112,7 @@ async function importCSV() {
       throw new Error("Header QR_TOKEN wajib tersedia.");
     }
 
-    const rank = {
-      UNACTIVATED: 0,
-      ACTIVATED: 1,
-      USED: 2
-    };
-
+    const rank = { UNACTIVATED: 0, ACTIVATED: 1, USED: 2 };
     let imported = 0;
     let skipped = 0;
 
@@ -1151,7 +1164,7 @@ async function importCSV() {
 }
 
 // ======================================================
-// ONLINE / OFFLINE
+// STATUS JARINGAN DAN KAMERA
 // ======================================================
 
 window.addEventListener("online", () => {
@@ -1162,16 +1175,9 @@ window.addEventListener("online", () => {
 
 window.addEventListener("offline", () => {
   if ($("home") && !$("home").classList.contains("hidden")) {
-    msg(
-      "homeMsg",
-      "Koneksi internet terputus. Aplikasi tetap dapat digunakan dengan database lokal."
-    );
+    msg("homeMsg", "Koneksi internet terputus. Aplikasi berjalan dengan database lokal.");
   }
 });
-
-// ======================================================
-// PENANGANAN KAMERA SAAT HALAMAN DITINGGALKAN
-// ======================================================
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) stopCamera();
@@ -1180,12 +1186,12 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", stopCamera);
 
 // ======================================================
-// MULAI APLIKASI
+// MULAI
 // ======================================================
 
 window.addEventListener("load", () => {
   init().catch(error => {
-    console.error("CTVS init error:", error);
+    console.error("CTVS initialization error:", error);
     alert("Gagal memulai aplikasi: " + error.message);
   });
 });
