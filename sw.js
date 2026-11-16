@@ -1,10 +1,13 @@
+
 "use strict";
 
 // ======================================================
-// CTVS AL-AZHAR SERVICE WORKER
+// TICKET VALIDATION SYSTEM
+// AL-AZHAR FESTIVAL 2026
+// SERVICE WORKER v4
 // ======================================================
 
-const CACHE_NAME = "ctvs-alazhar-v3";
+const CACHE_NAME = "ctvs-alazhar-v4";
 
 const APP_FILES = [
   "./",
@@ -21,7 +24,15 @@ const APP_FILES = [
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_FILES))
+      .then(async cache => {
+        for (const file of APP_FILES) {
+          try {
+            await cache.add(file);
+          } catch (error) {
+            console.warn("Cache file gagal:", file, error);
+          }
+        }
+      })
       .then(() => self.skipWaiting())
   );
 });
@@ -50,11 +61,12 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
 
+  // Hanya GET yang boleh menggunakan cache.
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
 
-  // Jangan cache Google Apps Script.
+  // Jangan pernah cache Google Apps Script.
   if (
     url.hostname === "script.google.com" ||
     url.hostname === "script.googleusercontent.com"
@@ -62,32 +74,39 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // Hanya menangani file dari domain aplikasi.
+  // Abaikan permintaan lintas domain.
   if (url.origin !== self.location.origin) return;
 
+  // Abaikan permintaan non-HTTP.
+  if (!["http:", "https:"].includes(url.protocol)) return;
+
   event.respondWith(
-    fetch(request)
-      .then(response => {
+    (async () => {
+      try {
+        // Network-first agar aplikasi memperoleh versi terbaru.
+        const response = await fetch(request);
+
         if (
           response &&
           response.status === 200 &&
           response.type === "basic"
         ) {
-          const copy = response.clone();
-
-          caches.open(CACHE_NAME)
-            .then(cache => cache.put(request, copy));
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, response.clone());
         }
 
         return response;
-      })
-      .catch(async () => {
+
+      } catch (error) {
+        // Jika offline, cari versi cache.
         const cached = await caches.match(request);
 
         if (cached) return cached;
 
+        // Fallback halaman utama untuk navigasi.
         if (request.mode === "navigate") {
           const fallback = await caches.match("./index.html");
+
           if (fallback) return fallback;
         }
 
@@ -101,6 +120,7 @@ self.addEventListener("fetch", event => {
             }
           }
         );
-      })
+      }
+    })()
   );
 });
