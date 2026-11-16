@@ -2,7 +2,7 @@
 // CTVS AL-AZHAR SERVICE WORKER
 // ======================================================
 
-const CACHE_NAME = "ctvs-alazhar-v1";
+const CACHE_NAME = "ctvs-alazhar-v2";
 
 const APP_FILES = [
   "./",
@@ -31,14 +31,14 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => {
-        return Promise.all(
-          keys
-            .filter(key => key.startsWith("ctvs-alazhar-"))
-            .filter(key => key !== CACHE_NAME)
-            .map(key => caches.delete(key))
-        );
-      })
+      .then(keys => Promise.all(
+        keys
+          .filter(key =>
+            key.startsWith("ctvs-alazhar-") &&
+            key !== CACHE_NAME
+          )
+          .map(key => caches.delete(key))
+      ))
       .then(() => self.clients.claim())
   );
 });
@@ -50,14 +50,11 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   const request = event.request;
 
-  // Hanya menangani permintaan GET.
-  if (request.method !== "GET") {
-    return;
-  }
+  if (request.method !== "GET") return;
 
   const url = new URL(request.url);
 
-  // Jangan cache endpoint Apps Script.
+  // Jangan menyimpan respons Google Apps Script.
   if (
     url.hostname === "script.google.com" ||
     url.hostname === "script.googleusercontent.com"
@@ -65,13 +62,11 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // Jangan cache permintaan di luar origin aplikasi.
-  if (url.origin !== self.location.origin) {
-    return;
-  }
+  // Jangan menangani permintaan dari luar domain aplikasi.
+  if (url.origin !== self.location.origin) return;
 
-  // Strategi network-first untuk file aplikasi:
-  // jika jaringan gagal, gunakan cache.
+  // Network-first: ambil versi terbaru jika internet tersedia.
+  // Jika offline, gunakan cache lokal.
   event.respondWith(
     fetch(request)
       .then(response => {
@@ -91,23 +86,21 @@ self.addEventListener("fetch", event => {
       .catch(async () => {
         const cached = await caches.match(request);
 
-        if (cached) {
-          return cached;
-        }
+        if (cached) return cached;
 
         if (request.mode === "navigate") {
           const fallback = await caches.match("./index.html");
-
-          if (fallback) {
-            return fallback;
-          }
+          if (fallback) return fallback;
         }
 
         return new Response(
-          "Aplikasi sedang offline dan file tidak tersedia di cache.",
+          "Aplikasi offline dan file belum tersedia di cache.",
           {
             status: 503,
-            statusText: "Offline"
+            statusText: "Offline",
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8"
+            }
           }
         );
       })
