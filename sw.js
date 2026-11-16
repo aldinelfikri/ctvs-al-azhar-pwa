@@ -1,5 +1,10 @@
-const CACHE = "ctvs-shell-v6";
-const CORE = [
+// ======================================================
+// CTVS AL-AZHAR SERVICE WORKER
+// ======================================================
+
+const CACHE_NAME = "ctvs-alazhar-v1";
+
+const APP_FILES = [
   "./",
   "./index.html",
   "./style.css",
@@ -7,55 +12,104 @@ const CORE = [
   "./manifest.webmanifest"
 ];
 
-self.addEventListener("install", (event) => {
+// ======================================================
+// INSTALL
+// ======================================================
+
+self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE)
-      .then((cache) => cache.addAll(CORE))
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(APP_FILES))
       .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener("activate", (event) => {
+// ======================================================
+// ACTIVATE
+// ======================================================
+
+self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))
-      ))
+      .then(keys => {
+        return Promise.all(
+          keys
+            .filter(key => key.startsWith("ctvs-alazhar-"))
+            .filter(key => key !== CACHE_NAME)
+            .map(key => caches.delete(key))
+        );
+      })
       .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-  const url = new URL(request.url);
+// ======================================================
+// FETCH
+// ======================================================
 
-  if (request.method !== "GET" || url.origin !== self.location.origin) {
+self.addEventListener("fetch", event => {
+  const request = event.request;
+
+  // Hanya menangani permintaan GET.
+  if (request.method !== "GET") {
     return;
   }
 
-  event.respondWith((async () => {
-    // For app navigation (including QR URLs with ?t=TOKEN),
-    // use the live page when online and the cached app shell when offline.
-    if (request.mode === "navigate") {
-      try {
-        return await fetch(request);
-      } catch (error) {
-        return (await caches.match("./index.html")) || Response.error();
-      }
-    }
+  const url = new URL(request.url);
 
-    const cached = await caches.match(request);
-    if (cached) return cached;
+  // Jangan cache endpoint Apps Script.
+  if (
+    url.hostname === "script.google.com" ||
+    url.hostname === "script.googleusercontent.com"
+  ) {
+    return;
+  }
 
-    try {
-      const response = await fetch(request);
-      if (response && response.ok && response.type === "basic") {
-        const cache = await caches.open(CACHE);
-        await cache.put(request, response.clone());
-      }
-      return response;
-    } catch (error) {
-      return Response.error();
-    }
-  })());
+  // Jangan cache permintaan di luar origin aplikasi.
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Strategi network-first untuk file aplikasi:
+  // jika jaringan gagal, gunakan cache.
+  event.respondWith(
+    fetch(request)
+      .then(response => {
+        if (
+          response &&
+          response.status === 200 &&
+          response.type === "basic"
+        ) {
+          const copy = response.clone();
+
+          caches.open(CACHE_NAME)
+            .then(cache => cache.put(request, copy));
+        }
+
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+
+        if (cached) {
+          return cached;
+        }
+
+        if (request.mode === "navigate") {
+          const fallback = await caches.match("./index.html");
+
+          if (fallback) {
+            return fallback;
+          }
+        }
+
+        return new Response(
+          "Aplikasi sedang offline dan file tidak tersedia di cache.",
+          {
+            status: 503,
+            statusText: "Offline"
+          }
+        );
+      })
+  );
 });
